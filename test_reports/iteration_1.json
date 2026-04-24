@@ -1,0 +1,60 @@
+{
+  "summary": "Comprehensive backend API testing for DocChat MVP. 48/48 tests passing after fixing 2 backend bugs discovered during testing. Validated auth, RBAC, documents metadata, share-link CRUD with strict guest-token scope isolation, sessions, feature flags, and admin endpoints. Skipped chat/embedding endpoints per instructions (LLM keys intentionally unset).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/auth/register",
+        "issue": "FIXED by test agent: returned 500 'PydanticSerializationError: Unable to serialize unknown type: bson.ObjectId'. PyMongo mutates the inserted dict in-place adding _id (ObjectId); safe_user excluded password_hash but not _id, so FastAPI response serialization crashed. Fixed by excluding both password_hash and _id in safe_user projection (/app/backend/routers/auth.py).",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/v2/documents/ingest",
+        "issue": "FIXED by test agent: background ingestion never ran and logs showed 'RuntimeError: no running event loop'. Code used `background_tasks.add_task(asyncio.create_task, _run())` — Starlette schedules sync callables in a threadpool where no asyncio loop exists. Replaced with `background_tasks.add_task(_run)` so Starlette awaits the coroutine directly (/app/backend/routers/documents.py).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/v2/documents",
+        "issue": "List endpoint omits `_id` via projection but also drops `disk_path` — good. No issue, just observed."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Both critical bugs were fixed directly by test agent — main agent should review the two diffs: auth.py safe_user projection and documents.py background_tasks.add_task call.",
+    "Consider adding a `conftest.py` autouse fixture for cleanup of TEST_-prefixed users/documents to keep the DB tidy across runs.",
+    "SHARE_TOKEN_SECRET default falls back to JWT_SECRET + '-share'; recommended to set explicitly in .env for production.",
+    "JWT_SECRET default is 'docchat-dev-secret-change-in-prod' — enforce required env in production.",
+    "Ingestion now correctly writes status='failed' with error='OPENAI_API_KEY not set' when key is absent — confirmed graceful."
+  ],
+  "critical_code_review_comments": [
+    "routers/auth.py: register previously leaked MongoDB `_id` into the response (fixed).",
+    "routers/documents.py: background task invocation pattern was broken (fixed). Prefer `background_tasks.add_task(coro_fn)` for async functions.",
+    "core/security.py create_guest_token / decode_guest_token use SHARE_TOKEN_SECRET — forged tokens signed with a different key are correctly rejected by chat._resolve_scope (verified).",
+    "routers/chat.py _resolve_scope correctly intersects guest payload document_ids with the share link's document_ids, preventing scope escalation — verified with forged-token test.",
+    "routers/documents.py retains `asyncio` import that is no longer referenced after fix — dead import, cosmetic.",
+    "routers/share.py single_use is enforced on /info and /verify via opens>0 check — works. Consider atomic findAndModify to avoid race on concurrent verify.",
+    "core/db.py MONGO_URL / DB_NAME read via os.environ[...] at import — will KeyError if missing at startup; acceptable but worth a clearer message."
+  ],
+  "updated_files": [
+    "/app/backend/routers/auth.py",
+    "/app/backend/routers/documents.py",
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (48/48)", "frontend": "not tested (per request)"},
+  "test_credentials": "owner@example.com / test1234 (pre-seeded). Additional TEST_-prefixed users created dynamically.",
+  "seed_data_creation": "Created ~5 TEST_-prefixed users and ~4 .txt test documents + 3 share links during testing; no manual teardown applied this iteration.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live in /app/backend/tests/backend_test.py and use owner@example.com. Chat endpoints were intentionally skipped because OPENROUTER_API_KEY / OPENAI_API_KEY are not set. Once the user adds keys, add tests around POST /v2/chat (stream=false) and verify streaming SSE. The guest-token isolation test forges a JWT with the wrong secret and expects 401 via /v2/chat — this works because _resolve_scope decodes the guest token first. After keys are added, also verify full ingestion reaches status='ready'.",
+  "rca_of_the_issue": "Two blocking bugs were found and fixed: (1) /auth/register crashed with 500 because PyMongo's insert_one mutated the caller-dict to include ObjectId `_id`, which FastAPI/Pydantic could not serialize — fix: exclude `_id` alongside `password_hash` when constructing safe_user. (2) Document upload triggered background ingestion via `background_tasks.add_task(asyncio.create_task, _run())`; Starlette runs sync callables in a thread with no event loop, so asyncio.create_task raised RuntimeError and the coroutine was never awaited — fix: pass the async function itself (`add_task(_run)`) so Starlette schedules it on the main loop. After fixes, ingestion correctly advances and fails gracefully with error='OPENAI_API_KEY not set'."
+}
