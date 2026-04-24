@@ -30,22 +30,31 @@ Build DocChat — an enterprise-grade, production-ready RAG platform that lets u
 ### Backend
 - JWT auth: register / login / refresh / me
 - RBAC dependency (`require_role`) enforced on every protected route
-- Document upload (PDF / DOCX / TXT / MD) with text extraction (pypdf, python-docx)
+- Document upload with multi-format extraction:
+  - Core: PDF, DOCX, TXT, MD (always enabled)
+  - PPTX (ENABLE_PPTX_SUPPORT) — slide text + speaker notes, one unit per slide
+  - XLSX (ENABLE_EXCEL_SUPPORT) — rows as tab-separated text, one unit per sheet
+  - CSV (ENABLE_EXCEL_SUPPORT) — rows as tab-separated text
+  - Images PNG/JPG/JPEG (ENABLE_IMAGE_OCR) — tesseract OCR
+  - Scanned/image-based PDFs (ENABLE_SCANNED_PDF_OCR) — pdf2image + tesseract fallback when pypdf returns no text
+  - Google Slides (ENABLE_GOOGLE_SLIDES) — STUB endpoint /v2/documents/ingest-google-slides
 - Tiktoken chunking (cl100k_base, 500 tokens, 75 overlap)
-- OpenAI text-embedding-3-small → ChromaDB (cosine)
-- Background ingestion with real-time progress status
-- RAG retrieval + OpenRouter streaming chat
-- Inline citations with page numbers
-- Confidence scoring from retrieval distance (HIGH / MEDIUM / LOW)
+- Pluggable embeddings:
+  - Local MiniLM (ChromaDB default, 384d, no API key) — active default
+  - OpenAI text-embedding-3-small (1536d) — switch via EMBEDDING_PROVIDER=openai
+- Background ingestion with progress status; heavy work (OCR, pptx, xlsx) offloaded to threadpool via `asyncio.to_thread`
+- RAG retrieval + pluggable LLM streaming chat:
+  - Emergent Universal Key proxy — active default
+  - OpenRouter — switch via LLM_PROVIDER=openrouter
+- Inline citations with page / slide / sheet numbers
+- Confidence scoring tuned per embedding provider (HIGH / MEDIUM / LOW)
 - Follow-up question suggestions
 - Conversation sessions (persistent, rename, delete)
 - Thumbs up/down feedback
 - Share links: public / password / expiring / single-use / domain restriction / revoke
-- Guest chat endpoint scoped via JWT containing document_ids (enforced in Chroma WHERE clause)
-- Admin analytics (totals, latency percentiles, feedback, daily series, confidence dist)
-- Admin audit log
-- Admin user management (change role)
-- Feature flags endpoint
+- Guest chat endpoint scoped via JWT containing document_ids
+- Admin analytics, audit log, user management
+- Feature flags endpoint + active-provider endpoint
 
 ### Frontend
 - Landing page (Swiss high-contrast, cobalt primary, structural imagery)

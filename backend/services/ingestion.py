@@ -1,5 +1,5 @@
 """Background document ingestion pipeline."""
-import uuid
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,13 +10,18 @@ from services.extraction import extract_text
 
 
 async def ingest_document(document_id: str, file_path: Path, filename: str, owner_id: str) -> None:
-    """Extract -> chunk -> embed -> index. Updates document status in MongoDB."""
+    """Extract -> chunk -> embed -> index. Updates document status in MongoDB.
+
+    Extraction runs in a threadpool because OCR (tesseract, pdf2image),
+    openpyxl, and python-pptx are all blocking CPU work and would otherwise
+    stall the asyncio event loop.
+    """
     try:
         await documents.update_one(
             {"id": document_id},
             {"$set": {"status": "extracting", "progress": 10}},
         )
-        pages = extract_text(file_path, filename)
+        pages = await asyncio.to_thread(extract_text, file_path, filename)
         if not pages:
             raise ValueError("No extractable text found")
 

@@ -197,8 +197,9 @@ class TestDocuments:
                          headers=owner_headers, timeout=15)
         assert r.status_code == 200
         body = r.json()
-        # With OPENAI_API_KEY missing, expected to end in 'failed' or be in-progress
-        assert body["status"] in ("queued", "extracting", "chunking", "embedding", "indexed", "failed")
+        # LLM keys may or may not be active; accept any legitimate status.
+        assert body["status"] in ("queued", "extracting", "chunking", "embedding",
+                                  "indexed", "ready", "failed")
 
     def test_unsupported_file_type(self, owner_headers, tmp_path):
         f = tmp_path / "x.exe"

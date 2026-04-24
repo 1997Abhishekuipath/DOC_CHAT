@@ -1,19 +1,49 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UploadSimple, FilePdf, FileDoc, FileText } from "@phosphor-icons/react";
+import {
+    UploadSimple,
+    FilePdf,
+    FileDoc,
+    FileText,
+    FileXls,
+    FilePpt,
+    Image as ImageIcon,
+} from "@phosphor-icons/react";
 import { toast } from "sonner";
 import api from "@/lib/api";
+
+const FORMAT_MAP = {
+    pdf: { icon: FilePdf, label: "PDF", flag: null },
+    docx: { icon: FileDoc, label: "DOCX", flag: null },
+    txt: { icon: FileText, label: "Text", flag: null },
+    md: { icon: FileText, label: "Markdown", flag: null },
+    pptx: { icon: FilePpt, label: "PowerPoint", flag: "ENABLE_PPTX_SUPPORT" },
+    xlsx: { icon: FileXls, label: "Excel", flag: "ENABLE_EXCEL_SUPPORT" },
+    csv: { icon: FileXls, label: "CSV", flag: "ENABLE_EXCEL_SUPPORT" },
+    png: { icon: ImageIcon, label: "Image (OCR)", flag: "ENABLE_IMAGE_OCR" },
+    jpg: { icon: ImageIcon, label: "Image (OCR)", flag: "ENABLE_IMAGE_OCR" },
+    jpeg: { icon: ImageIcon, label: "Image (OCR)", flag: "ENABLE_IMAGE_OCR" },
+};
 
 export default function UploadDialog({ open, onOpenChange, onUploaded }) {
     const [file, setFile] = useState(null);
     const [tags, setTags] = useState("");
     const [busy, setBusy] = useState(false);
+    const [flags, setFlags] = useState({});
+
+    useEffect(() => {
+        if (!open) return;
+        api.get("/v2/flags").then((r) => setFlags(r.data)).catch(() => {});
+    }, [open]);
 
     const reset = () => { setFile(null); setTags(""); };
     const handleClose = (o) => { if (!o) reset(); onOpenChange(o); };
+
+    const enabledFormats = Object.entries(FORMAT_MAP).filter(([ext, m]) => !m.flag || flags[m.flag]);
+    const acceptStr = enabledFormats.map(([ext]) => `.${ext}`).join(",");
 
     const submit = async () => {
         if (!file) { toast.error("Choose a file"); return; }
@@ -35,7 +65,15 @@ export default function UploadDialog({ open, onOpenChange, onUploaded }) {
     };
 
     const ext = file ? file.name.split(".").pop().toLowerCase() : "";
-    const Icon = ext === "pdf" ? FilePdf : (ext === "docx" ? FileDoc : FileText);
+    const meta = FORMAT_MAP[ext] || { icon: FileText, label: ext.toUpperCase() };
+    const Icon = meta.icon;
+
+    // Group enabled formats for display
+    const uniqueLabels = [];
+    const seen = new Set();
+    enabledFormats.forEach(([, m]) => {
+        if (!seen.has(m.label)) { seen.add(m.label); uniqueLabels.push(m.label); }
+    });
 
     return (
         <Dialog open={open} onOpenChange={handleClose}>
@@ -43,7 +81,7 @@ export default function UploadDialog({ open, onOpenChange, onUploaded }) {
                 <DialogHeader>
                     <DialogTitle className="font-heading text-2xl">Ingest Document</DialogTitle>
                     <DialogDescription>
-                        Supported: PDF, DOCX, TXT, MD. Processing runs in the background.
+                        Processing runs in the background. OCR-based formats take a bit longer.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -58,20 +96,22 @@ export default function UploadDialog({ open, onOpenChange, onUploaded }) {
                                 <Icon size={36} className="text-brand-primary" weight="duotone" />
                                 <div className="mt-3 font-medium">{file.name}</div>
                                 <div className="text-xs text-muted-foreground mt-1">
-                                    {(file.size / 1024).toFixed(1)} KB
+                                    {meta.label} · {(file.size / 1024).toFixed(1)} KB
                                 </div>
                             </>
                         ) : (
                             <>
                                 <UploadSimple size={36} className="text-muted-foreground" weight="duotone" />
                                 <div className="mt-3 font-medium">Click to choose a file</div>
-                                <div className="text-xs text-muted-foreground mt-1">PDF · DOCX · TXT · MD</div>
+                                <div className="text-xs text-muted-foreground mt-1 font-mono max-w-md text-center">
+                                    {uniqueLabels.join(" · ") || "Loading supported formats…"}
+                                </div>
                             </>
                         )}
                         <input
                             id="file-input"
                             type="file"
-                            accept=".pdf,.docx,.txt,.md"
+                            accept={acceptStr || ".pdf,.docx,.txt,.md"}
                             className="hidden"
                             data-testid="upload-file-input"
                             onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -89,6 +129,12 @@ export default function UploadDialog({ open, onOpenChange, onUploaded }) {
                             data-testid="upload-tags-input"
                         />
                     </div>
+
+                    {ext && FORMAT_MAP[ext]?.flag && !flags[FORMAT_MAP[ext].flag] && (
+                        <div className="text-xs bg-secondary border border-border p-3 text-muted-foreground" data-testid="upload-flag-warning">
+                            This format requires <span className="dc-kbd">{FORMAT_MAP[ext].flag}</span> to be enabled. Ask an admin to flip the feature flag in <span className="font-mono">backend/.env</span>.
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter>

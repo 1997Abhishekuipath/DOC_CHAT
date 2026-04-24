@@ -82,6 +82,12 @@ FEATURE_FLAGS = {
     "ENABLE_BACKGROUND_INGESTION": _bool_env("ENABLE_BACKGROUND_INGESTION", True),
     "ENABLE_ANALYTICS_DASHBOARD": _bool_env("ENABLE_ANALYTICS_DASHBOARD", True),
     "ENABLE_AUDIT_LOG": _bool_env("ENABLE_AUDIT_LOG", True),
+    # --- Extended document format support (Feb 2026) ---
+    "ENABLE_PPTX_SUPPORT": _bool_env("ENABLE_PPTX_SUPPORT", True),
+    "ENABLE_EXCEL_SUPPORT": _bool_env("ENABLE_EXCEL_SUPPORT", True),
+    "ENABLE_IMAGE_OCR": _bool_env("ENABLE_IMAGE_OCR", True),
+    "ENABLE_SCANNED_PDF_OCR": _bool_env("ENABLE_SCANNED_PDF_OCR", True),
+    "ENABLE_GOOGLE_SLIDES": _bool_env("ENABLE_GOOGLE_SLIDES", False),
 }
 
 

@@ -13,6 +13,9 @@ import {
     FileText,
     FilePdf,
     FileDoc,
+    FileXls,
+    FilePpt,
+    Image as ImageIcon,
     CheckCircle,
     Clock,
     XCircle,
@@ -24,6 +27,9 @@ const IconForFile = ({ filename }) => {
     const ext = (filename || "").split(".").pop().toLowerCase();
     if (ext === "pdf") return <FilePdf size={22} weight="duotone" className="text-destructive" />;
     if (ext === "docx") return <FileDoc size={22} weight="duotone" className="text-brand-primary" />;
+    if (ext === "pptx") return <FilePpt size={22} weight="duotone" className="text-confidence-medium" />;
+    if (ext === "xlsx" || ext === "csv") return <FileXls size={22} weight="duotone" className="text-confidence-high" />;
+    if (["png", "jpg", "jpeg"].includes(ext)) return <ImageIcon size={22} weight="duotone" className="text-brand-accent" />;
     return <FileText size={22} weight="duotone" className="text-muted-foreground" />;
 };
 
@@ -143,7 +149,7 @@ export default function Dashboard() {
                         <FileText size={40} weight="duotone" className="mx-auto text-muted-foreground" />
                         <h2 className="font-heading font-bold text-xl mt-4">No documents yet</h2>
                         <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-                            Upload your first PDF, DOCX, TXT, or Markdown file to start chatting with it.
+                            Upload a PDF, DOCX, PPTX, XLSX, CSV, image, or text file to start chatting with it.
                         </p>
                         <Button className="mt-6" onClick={() => setUploadOpen(true)} data-testid="empty-upload-button">
                             <Plus size={16} /> Upload document

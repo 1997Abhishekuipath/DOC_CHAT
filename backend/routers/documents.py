@@ -14,7 +14,11 @@ from core.config import UPLOAD_DIR
 from core.db import documents, share_links
 from core.deps import ROLE_EDITOR, get_current_user, require_role
 from services.embeddings import delete_document_chunks
-from services.extraction import SUPPORTED_EXTENSIONS
+from services.extraction import (
+    ALL_KNOWN_EXTENSIONS,
+    current_supported_extensions,
+    file_type_label,
+)
 from services.ingestion import ingest_document
 
 router = APIRouter(prefix="/v2/documents", tags=["documents"])
@@ -25,6 +29,7 @@ class DocumentOut(BaseModel):
     filename: str
     size: int
     mime_type: Optional[str] = None
+    file_type: Optional[str] = None
     owner_id: str
     owner_name: Optional[str] = None
     status: str
@@ -46,7 +51,24 @@ async def upload_document(
     user: dict = Depends(require_role(ROLE_EDITOR)),
 ):
     ext = Path(file.filename or "").suffix.lower()
-    if ext not in SUPPORTED_EXTENSIONS:
+    enabled_exts = current_supported_extensions()
+
+    if ext in ALL_KNOWN_EXTENSIONS and ext not in enabled_exts:
+        # Known format but its feature flag is OFF — reject with a clear reason.
+        flag_map = {
+            ".pptx": "ENABLE_PPTX_SUPPORT",
+            ".xlsx": "ENABLE_EXCEL_SUPPORT",
+            ".csv": "ENABLE_EXCEL_SUPPORT",
+            ".png": "ENABLE_IMAGE_OCR",
+            ".jpg": "ENABLE_IMAGE_OCR",
+            ".jpeg": "ENABLE_IMAGE_OCR",
+        }
+        flag = flag_map.get(ext, "the corresponding feature flag")
+        raise HTTPException(
+            status_code=400,
+            detail=f"{ext} uploads are disabled. Enable {flag} in backend/.env to ingest this format.",
+        )
+    if ext not in enabled_exts:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
     doc_id = str(uuid.uuid4())
@@ -63,6 +85,7 @@ async def upload_document(
         "disk_path": str(disk_path),
         "size": size,
         "mime_type": file.content_type,
+        "file_type": file_type_label(file.filename or ""),
         "owner_id": user["id"],
         "owner_name": user.get("name"),
         "status": "queued",
@@ -212,3 +235,34 @@ async def delete_document(
         metadata={"filename": doc["filename"]},
     )
     return {"ok": True}
+
+
+
+# ---------------------------------------------------------------------------
+# Google Slides (stub) — API-ready scaffold behind ENABLE_GOOGLE_SLIDES
+# ---------------------------------------------------------------------------
+class GoogleSlidesBody(BaseModel):
+    presentation_id: str
+    title: Optional[str] = None
+
+
+@router.post("/ingest-google-slides")
+async def ingest_google_slides(
+    body: GoogleSlidesBody,
+    request: Request,
+    user: dict = Depends(require_role(ROLE_EDITOR)),
+):
+    """Stub: reserves the endpoint + record shape. Full implementation needs
+    Google API credentials and the presentations.get() traversal in
+    services.extraction.extract_google_slides."""
+    from core.config import is_enabled
+
+    if not is_enabled("ENABLE_GOOGLE_SLIDES"):
+        raise HTTPException(
+            status_code=400,
+            detail="Google Slides ingestion is disabled. Enable ENABLE_GOOGLE_SLIDES in backend/.env and configure Google API credentials.",
+        )
+    raise HTTPException(
+        status_code=501,
+        detail="Google Slides ingestion flag is ON but the integration is not yet implemented. Add credentials and wire services.extraction.extract_google_slides to complete.",
+    )
