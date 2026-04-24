@@ -7,9 +7,11 @@ import { CheckCircle, XCircle } from "@phosphor-icons/react";
 export default function Settings() {
     const { user } = useAuth();
     const [flags, setFlags] = useState({});
+    const [providers, setProviders] = useState(null);
 
     useEffect(() => {
         api.get("/v2/flags").then((r) => setFlags(r.data)).catch(() => {});
+        api.get("/v2/providers").then((r) => setProviders(r.data)).catch(() => {});
     }, []);
 
     return (
@@ -37,6 +39,25 @@ export default function Settings() {
                             <div className="mt-1"><Badge className="font-mono uppercase" data-testid="settings-role">{user?.role}</Badge></div>
                         </div>
                     </div>
+                </section>
+
+                <section>
+                    <div className="dc-overline mb-3">Active providers</div>
+                    <p className="text-xs text-muted-foreground mb-4">Runtime-switchable via <span className="dc-kbd">LLM_PROVIDER</span> and <span className="dc-kbd">EMBEDDING_PROVIDER</span> env vars.</p>
+                    {providers && (
+                        <div className="grid md:grid-cols-2 gap-0 border-l border-t border-border">
+                            <div className="border-r border-b border-border p-6" data-testid="provider-llm">
+                                <div className="dc-overline mb-2">LLM (chat)</div>
+                                <div className="font-heading font-bold text-2xl">{providers.llm.provider}</div>
+                                <div className="text-xs font-mono text-muted-foreground mt-1">{providers.llm.model}</div>
+                            </div>
+                            <div className="border-r border-b border-border p-6" data-testid="provider-embedding">
+                                <div className="dc-overline mb-2">Embeddings</div>
+                                <div className="font-heading font-bold text-2xl">{providers.embedding.provider}</div>
+                                <div className="text-xs font-mono text-muted-foreground mt-1">{providers.embedding.model}</div>
+                            </div>
+                        </div>
+                    )}
                 </section>
 
                 <section>

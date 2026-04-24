@@ -26,11 +26,23 @@ def _build_context(hits: List[dict]) -> str:
 
 
 def _confidence_from_hits(hits: List[dict]) -> str:
-    """Map best retrieval distance to HIGH/MEDIUM/LOW. Cosine distance: lower=better."""
+    """Map best retrieval distance to HIGH/MEDIUM/LOW.
+    Thresholds are provider-dependent because MiniLM (local) and OpenAI
+    produce different cosine-distance distributions for semantically similar text.
+    """
+    from core.config import EMBEDDING_PROVIDER
+
     if not hits:
         return "LOW"
     best = min((h.get("distance") or 1.0) for h in hits)
-    # Cosine distance: 0 = identical, 2 = opposite
+    if EMBEDDING_PROVIDER == "local":
+        # MiniLM: relevant hits typically land in 0.5–1.2
+        if best < 0.7:
+            return "HIGH"
+        if best < 1.0:
+            return "MEDIUM"
+        return "LOW"
+    # openai text-embedding-3-small: relevant hits land in 0.15–0.55
     if best < 0.35:
         return "HIGH"
     if best < 0.6:

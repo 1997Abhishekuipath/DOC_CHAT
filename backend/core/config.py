@@ -18,18 +18,49 @@ JWT_ACCESS_EXPIRE_MINUTES = 60 * 24  # 24h
 JWT_REFRESH_EXPIRE_DAYS = 30
 SHARE_TOKEN_SECRET = os.environ.get("SHARE_TOKEN_SECRET", JWT_SECRET + "-share")
 
-# LLM / Embeddings
+# ---------------------------------------------------------------------------
+# Provider configuration — runtime-switchable via env vars.
+#
+# LLM_PROVIDER        = "emergent" | "openrouter"   (default: emergent)
+# EMBEDDING_PROVIDER  = "local"    | "openai"       (default: local)
+#
+#   emergent:    uses EMERGENT_LLM_KEY against the Emergent proxy.
+#                Chat works; embeddings NOT supported on the proxy.
+#   openrouter:  uses OPENROUTER_API_KEY against openrouter.ai.
+#   local:       uses ChromaDB's DefaultEmbeddingFunction (onnx MiniLM, 384d).
+#                No API key required.
+#   openai:      uses OPENAI_API_KEY against OpenAI directly (1536d).
+# ---------------------------------------------------------------------------
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "emergent").lower()
+EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "local").lower()
+
+# Keys
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+EMERGENT_BASE_URL = os.environ.get(
+    "EMERGENT_BASE_URL", "https://integrations.emergentagent.com/llm"
+)
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+
+# Models (each provider has sensible defaults; override via env)
+LLM_MODEL = os.environ.get(
+    "LLM_MODEL",
+    "gpt-4o-mini" if LLM_PROVIDER == "emergent" else "openai/gpt-4o-mini",
+)
+EMBEDDING_MODEL = os.environ.get(
+    "EMBEDDING_MODEL",
+    "all-MiniLM-L6-v2" if EMBEDDING_PROVIDER == "local" else "text-embedding-3-small",
+)
 
 # Storage
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "/app/backend/uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 CHROMA_DIR = Path(os.environ.get("CHROMA_DIR", "/app/backend/chroma_db"))
 CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Collection name varies by embedding provider to avoid dim mismatch
+CHROMA_COLLECTION = f"docchat_{EMBEDDING_PROVIDER}"
 
 # Feature flags
 FEATURE_FLAGS = {

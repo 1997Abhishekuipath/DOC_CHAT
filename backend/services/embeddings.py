@@ -1,37 +1,77 @@
-"""OpenAI embeddings + ChromaDB vector store."""
+"""Embeddings + ChromaDB vector store. Pluggable embedding provider."""
+import asyncio
 from typing import List, Optional
 
 import chromadb
-from openai import AsyncOpenAI
+from chromadb.utils import embedding_functions
 
-from core.config import CHROMA_DIR, EMBEDDING_MODEL, OPENAI_API_KEY
-
-_chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-_collection = _chroma_client.get_or_create_collection(
-    name="docchat_chunks", metadata={"hnsw:space": "cosine"}
+from core.config import (
+    CHROMA_COLLECTION,
+    CHROMA_DIR,
+    EMBEDDING_MODEL,
+    EMBEDDING_PROVIDER,
+    OPENAI_API_KEY,
 )
 
-_openai_client: Optional[AsyncOpenAI] = None
+_chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+
+# ---------------------------------------------------------------------------
+# Embedding provider abstraction
+# ---------------------------------------------------------------------------
+_local_ef: Optional[embedding_functions.EmbeddingFunction] = None
+_openai_client = None
 
 
-def _get_openai() -> AsyncOpenAI:
+def _get_local_ef() -> embedding_functions.EmbeddingFunction:
+    """ChromaDB default embedding function (onnx MiniLM, 384d, no API key)."""
+    global _local_ef
+    if _local_ef is None:
+        _local_ef = embedding_functions.DefaultEmbeddingFunction()
+    return _local_ef
+
+
+def _get_openai():
+    from openai import AsyncOpenAI
+
     global _openai_client
     if _openai_client is None:
         if not OPENAI_API_KEY:
-            raise RuntimeError("OPENAI_API_KEY not set")
+            raise RuntimeError(
+                "OPENAI_API_KEY not set. Either add it or switch EMBEDDING_PROVIDER=local."
+            )
         _openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     return _openai_client
 
 
 async def embed_texts(texts: List[str]) -> List[List[float]]:
-    client = _get_openai()
-    resp = await client.embeddings.create(model=EMBEDDING_MODEL, input=texts)
-    return [d.embedding for d in resp.data]
+    if EMBEDDING_PROVIDER == "openai":
+        client = _get_openai()
+        resp = await client.embeddings.create(model=EMBEDDING_MODEL, input=texts)
+        return [d.embedding for d in resp.data]
+    # local (default)
+    ef = _get_local_ef()
+    # chromadb EF is synchronous; run in threadpool to avoid blocking the event loop
+    return await asyncio.to_thread(ef, texts)
 
 
 async def embed_query(query: str) -> List[float]:
     embs = await embed_texts([query])
     return embs[0]
+
+
+# ---------------------------------------------------------------------------
+# Chroma collection (lazy-init so provider change works without restart loops)
+# ---------------------------------------------------------------------------
+_collection = None
+
+
+def _get_collection():
+    global _collection
+    if _collection is None:
+        _collection = _chroma_client.get_or_create_collection(
+            name=CHROMA_COLLECTION, metadata={"hnsw:space": "cosine"}
+        )
+    return _collection
 
 
 async def add_chunks(
@@ -56,7 +96,8 @@ async def add_chunks(
         }
         for c in chunks
     ]
-    _collection.add(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
+    col = _get_collection()
+    col.add(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
     return len(chunks)
 
 
@@ -65,12 +106,16 @@ async def search_chunks(
     document_ids: List[str],
     top_k: int = 5,
 ) -> List[dict]:
-    """Retrieve top_k chunks across the given document_ids."""
     if not document_ids:
         return []
     query_emb = await embed_query(query)
-    where = {"document_id": {"$in": document_ids}} if len(document_ids) > 1 else {"document_id": document_ids[0]}
-    results = _collection.query(
+    where = (
+        {"document_id": {"$in": document_ids}}
+        if len(document_ids) > 1
+        else {"document_id": document_ids[0]}
+    )
+    col = _get_collection()
+    results = col.query(
         query_embeddings=[query_emb],
         n_results=top_k,
         where=where,
@@ -96,6 +141,7 @@ async def search_chunks(
 
 def delete_document_chunks(document_id: str) -> None:
     try:
-        _collection.delete(where={"document_id": document_id})
+        col = _get_collection()
+        col.delete(where={"document_id": document_id})
     except Exception:
         pass
