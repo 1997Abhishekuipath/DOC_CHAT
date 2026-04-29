@@ -12,6 +12,7 @@ import {
     Gear,
     SignOut,
     CaretRight,
+    Code,
 } from "@phosphor-icons/react";
 
 function NavItem({ to, end, icon: Icon, label, testId }) {
@@ -56,6 +57,7 @@ export default function AppLayout() {
                     <NavItem to="/app" end icon={FileText} label="Documents" testId="nav-documents" />
                     <NavItem to="/app/chat" icon={ChatCircleDots} label="Chat" testId="nav-chat" />
                     <NavItem to="/app/shares" icon={LinkSimple} label="Share links" testId="nav-shares" />
+                    <NavItem to="/app/embed-widget" icon={Code} label="Embed widget" testId="nav-embed-widget" />
 
                     {isAdmin && (
                         <>

@@ -101,3 +101,118 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Test the DocChat Embed Widget feature"
+
+frontend:
+  - task: "Embed Widget Navigation"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/AppLayout.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Navigation item 'Embed widget' is present in sidebar with correct testId='nav-embed-widget'. Navigation to /app/embed-widget works correctly."
+
+  - task: "Embed Widget List Page"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/EmbedWidget.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Empty state displays correctly with 'No widgets yet' message and 'Create first widget' button. Info banner about widget functionality is visible."
+
+  - task: "Widget Builder - Basic Layout"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/EmbedWidget.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Widget builder page loads correctly with header 'Create widget', back button, and save button. Layout includes left form panel and right live preview panel."
+
+  - task: "Widget Builder - Name and Document Scope"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/EmbedWidget.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Widget name input field works correctly. Document scope section displays with checkbox list (shows 'No ready documents' message when no documents available). Counter shows '0 selected'."
+
+  - task: "Widget Builder - Appearance Tab"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/EmbedWidget.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Appearance tab displays all fields correctly: Widget title input, Subtitle input, Brand color picker with hex input, Widget position selector (Bottom Right/Left), Launcher style selector (Icon only/Icon+Label), Dark mode toggle switch."
+
+  - task: "Widget Builder - Behaviour Tab"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/EmbedWidget.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Behaviour tab displays all fields correctly: Welcome message textarea, Fallback message textarea, Max questions per session input (0=unlimited), Email collection selector (Off/Optional/Required), Show citations toggle, Show confidence toggle, Allow copy toggle. All toggles are functional."
+
+  - task: "Widget Builder - Security Tab"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/EmbedWidget.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Security tab displays all fields correctly: Allowed domains textarea with placeholder examples (supports wildcards like *.company.com), Max queries per visitor per hour input (default 20), Max queries per day input (default 500). Server-side enforcement info banner is visible."
+
+  - task: "Widget Builder - Live Preview"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/EmbedWidget.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Live preview panel displays correctly on the right side showing: Phone frame with widget panel, Widget header with title and subtitle, Sample message bubbles (welcome message, user question, assistant answer), Citations display, Confidence badge, Input area with send button, Launcher button preview below. Preview updates in real-time with configuration changes."
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 1
+
+test_plan:
+  current_focus:
+    - "All Embed Widget features tested"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    - agent: "testing"
+      message: "Completed comprehensive testing of DocChat Embed Widget feature. All UI elements are functional and rendering correctly. Navigation works, empty state displays properly, widget builder loads with all tabs (Appearance, Behaviour, Security), live preview updates correctly. No console errors or network failures detected. Document scope shows expected message when no documents are available. All form fields are accessible and functional."

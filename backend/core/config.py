@@ -88,6 +88,8 @@ FEATURE_FLAGS = {
     "ENABLE_IMAGE_OCR": _bool_env("ENABLE_IMAGE_OCR", True),
     "ENABLE_SCANNED_PDF_OCR": _bool_env("ENABLE_SCANNED_PDF_OCR", True),
     "ENABLE_GOOGLE_SLIDES": _bool_env("ENABLE_GOOGLE_SLIDES", False),
+    # --- Embeddable chat widget (Apr 2026) ---
+    "ENABLE_EMBED_WIDGET": _bool_env("ENABLE_EMBED_WIDGET", True),
 }
 
 

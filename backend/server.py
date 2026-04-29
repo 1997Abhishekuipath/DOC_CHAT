@@ -11,7 +11,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 from core.db import init_indexes  # noqa: E402
-from routers import admin, auth, chat, documents, feedback, flags, sessions, share  # noqa: E402
+from routers import admin, auth, chat, documents, feedback, flags, sessions, share, widgets, widget_public  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("docchat")
@@ -42,6 +42,8 @@ api_router.include_router(feedback.router)
 api_router.include_router(share.router)
 api_router.include_router(flags.router)
 api_router.include_router(admin.router)
+api_router.include_router(widgets.router)
+api_router.include_router(widget_public.router)
 
 app.include_router(api_router)
 

@@ -15,6 +15,7 @@ import AdminAnalytics from "@/pages/AdminAnalytics";
 import AdminAudit from "@/pages/AdminAudit";
 import AdminUsers from "@/pages/AdminUsers";
 import Settings from "@/pages/Settings";
+import EmbedWidget from "@/pages/EmbedWidget";
 
 import "@/App.css";
 
@@ -40,6 +41,7 @@ function App() {
                         <Route path="chat" element={<Chat />} />
                         <Route path="chat/:sessionId" element={<Chat />} />
                         <Route path="shares" element={<ShareLinks />} />
+                        <Route path="embed-widget" element={<EmbedWidget />} />
                         <Route path="settings" element={<Settings />} />
                         <Route path="admin/analytics" element={<PrivateRoute requireRole="owner"><AdminAnalytics /></PrivateRoute>} />
                         <Route path="admin/audit" element={<PrivateRoute requireRole="owner"><AdminAudit /></PrivateRoute>} />
