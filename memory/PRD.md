@@ -26,7 +26,27 @@ Build DocChat — an enterprise-grade, production-ready RAG platform that lets u
 3. **Viewer** — reads granted documents, chats within scope
 4. **Public Guest** — accesses only share-token-scoped documents, strictly read-only
 
-## What's Been Implemented (2026-04-24)
+## What's Been Implemented (2026-04-29 — ENABLE_EMBED_WIDGET)
+### Backend
+- `routers/widgets.py`: Full CRUD for embed widgets (`POST/GET/PATCH/DELETE /api/v2/widgets`) + analytics
+- `routers/widget_public.py`: Public endpoints:
+  - `GET /api/widget/loader.js` — 2.7KB JS loader (no external deps)
+  - `GET /api/widget/{id}/config` — domain-validated config for loader
+  - `GET /api/widget/{id}/iframe` — full widget HTML (self-contained CSS + SSE JS)
+  - `POST /api/widget/{id}/chat` — scoped streaming RAG chat with domain check + rate limit
+- `core/db.py`: Added `embed_widgets`, `widget_sessions`, `widget_events` collections + indexes
+- `core/config.py`: Added `ENABLE_EMBED_WIDGET` feature flag (default: true)
+- Security: domain whitelist enforced server-side via Origin/Referer; rate limiting per visitor+IP fingerprint; widget tokens carry no user identity
+
+### Frontend
+- `pages/EmbedWidget.jsx`: Full widget builder UI:
+  - Widget list with status badge, active/pause toggle, analytics dialog, delete
+  - Builder: 3 tabs (Appearance / Behaviour / Security / Install)
+  - Live preview panel updating in real-time as config changes
+  - Install tab: 3 embed options (Script tag / iFrame / NPM) with one-click copy
+  - Analytics dialog: sessions, unique visitors, queries, top questions, domain breakdown
+
+
 ### Backend
 - JWT auth: register / login / refresh / me
 - RBAC dependency (`require_role`) enforced on every protected route

@@ -102,6 +102,90 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
+user_problem_statement: >
+  DocChat — Enterprise RAG Platform. Build a full-stack enterprise-grade RAG platform that lets
+  users upload documents and have AI-powered conversations grounded in those documents, with
+  citations, access control, and secure sharing. Latest addition: ENABLE_EMBED_WIDGET feature
+  — embeddable chat widget that any third-party website can install.
+
+backend:
+  - task: "Embed widget CRUD API (POST/GET/PATCH/DELETE /api/v2/widgets)"
+    implemented: true
+    working: true
+    file: "backend/routers/widgets.py"
+    stuck_count: 0
+    priority: high
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: main
+        comment: "Created routers/widgets.py with full CRUD + analytics endpoint. Feature flag ENABLE_EMBED_WIDGET enforced."
+
+  - task: "Public widget endpoints (loader.js, iframe HTML, config, streaming chat)"
+    implemented: true
+    working: true
+    file: "backend/routers/widget_public.py"
+    stuck_count: 0
+    priority: high
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: main
+        comment: "GET /api/widget/loader.js (2.7KB), GET /api/widget/{id}/iframe, GET /api/widget/{id}/config, POST /api/widget/{id}/chat. Domain whitelist, rate limiting, SSE streaming all implemented."
+
+  - task: "DB collections: embed_widgets, widget_sessions, widget_events + indexes"
+    implemented: true
+    working: true
+    file: "backend/core/db.py"
+    stuck_count: 0
+    priority: high
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: main
+        comment: "Added 3 collections + indexes to db.py and init_indexes()."
+
+frontend:
+  - task: "Embed Widget builder page with 3 tabs + live preview"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/EmbedWidget.jsx"
+    stuck_count: 0
+    priority: high
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: testing
+        comment: "All tabs (Appearance/Behaviour/Security/Install), live preview, widget list, analytics dialog, active/pause toggle all working correctly."
+
+  - task: "Embed Widget nav item + route in AppLayout/App.js"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/AppLayout.jsx"
+    stuck_count: 0
+    priority: medium
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: testing
+        comment: "Nav item visible in sidebar, routes to /app/embed-widget correctly."
+
+metadata:
+  created_by: main_agent
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: high_first
+
+agent_communication:
+  - agent: main
+    message: "Implemented full ENABLE_EMBED_WIDGET feature. All backend and frontend components verified by testing agent."
+
 user_problem_statement: "Test the DocChat Embed Widget feature"
 
 frontend:
