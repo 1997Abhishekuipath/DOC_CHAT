@@ -21,6 +21,7 @@ import {
     XCircle,
     Trash,
     ChatCircle,
+    ArrowClockwise,
 } from "@phosphor-icons/react";
 
 const IconForFile = ({ filename }) => {
@@ -94,6 +95,16 @@ export default function Dashboard() {
         }
     };
 
+    const retry = async (d) => {
+        try {
+            await api.post(`/v2/documents/${d.id}/reprocess`);
+            toast.success(`Retrying "${d.filename}"…`);
+            setDocs((c) => c.map((x) => x.id === d.id ? { ...x, status: "queued", progress: 5, error: null } : x));
+        } catch (e) {
+            toast.error(e?.response?.data?.detail || "Retry failed");
+        }
+    };
+
     const chatSelected = () => {
         const ready = docs.filter((d) => selected.includes(d.id) && d.status === "ready");
         if (!ready.length) { toast.error("Select at least one ready document"); return; }
@@ -159,7 +170,7 @@ export default function Dashboard() {
 
                 {!loading && docs.length > 0 && (
                     <div className="border border-border">
-                        <div className="hidden md:grid grid-cols-[36px_1fr_140px_110px_100px_80px_40px] gap-4 px-4 py-3 bg-secondary/50 border-b border-border text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                        <div className="hidden md:grid grid-cols-[36px_1fr_200px_110px_100px_80px_40px] gap-4 px-4 py-3 bg-secondary/50 border-b border-border text-xs font-mono uppercase tracking-wider text-muted-foreground">
                             <div></div>
                             <div>File</div>
                             <div>Status</div>
@@ -171,7 +182,7 @@ export default function Dashboard() {
                         {docs.map((d) => (
                             <div
                                 key={d.id}
-                                className="md:grid md:grid-cols-[36px_1fr_140px_110px_100px_80px_40px] gap-4 px-4 py-3 border-b border-border last:border-b-0 hover:bg-secondary/30 transition-colors items-center"
+                                className="md:grid md:grid-cols-[36px_1fr_200px_110px_100px_80px_40px] gap-4 px-4 py-3 border-b border-border last:border-b-0 hover:bg-secondary/30 transition-colors items-center"
                                 data-testid={`document-row-${d.id}`}
                             >
                                 <input
@@ -189,10 +200,28 @@ export default function Dashboard() {
                                         <div className="text-xs text-muted-foreground">{new Date(d.created_at).toLocaleDateString()}</div>
                                     </div>
                                 </div>
-                                <div>
-                                    <StatusBadge status={d.status} />
-                                    {d.status !== "ready" && d.status !== "failed" && (
-                                        <Progress value={d.progress || 0} className="h-1 mt-1 w-28" />
+                            <div className="flex items-center gap-2 min-w-0">
+                                    <div>
+                                        <StatusBadge status={d.status} />
+                                        {d.status !== "ready" && d.status !== "failed" && (
+                                            <Progress value={d.progress || 0} className="h-1 mt-1 w-28" />
+                                        )}
+                                        {d.status === "failed" && d.error && (
+                                            <div className="text-[10px] text-confidence-low mt-0.5 truncate max-w-[180px]" title={d.error}>
+                                                {d.error.length > 50 ? d.error.slice(0, 50) + "…" : d.error}
+                                            </div>
+                                        )}
+                                    </div>
+                                    {d.status === "failed" && (
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-7 w-7 shrink-0"
+                                            onClick={() => retry(d)}
+                                            title="Retry ingestion"
+                                        >
+                                            <ArrowClockwise size={14} className="text-confidence-medium" />
+                                        </Button>
                                     )}
                                 </div>
                                 <div className="text-sm font-mono">

@@ -1,4 +1,5 @@
 """Document upload, list, delete, permissions, status."""
+import hashlib
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -70,11 +71,32 @@ async def upload_document(
     if ext not in enabled_exts:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
+    # ── Read file content & compute SHA-256 hash for duplicate detection ──
+    raw_content = await file.read()
+    content_hash = hashlib.sha256(raw_content).hexdigest()
+
+    # ── Duplicate check: same hash, same owner (or any owner for 'owner' role) ──
+    dup_query = {"content_hash": content_hash}
+    if user["role"] != "owner":
+        dup_query["owner_id"] = user["id"]
+    existing = await documents.find_one(dup_query, {"_id": 0, "id": 1, "filename": 1, "status": 1, "created_at": 1})
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DUPLICATE",
+                "message": f"This file was already uploaded as \"{existing['filename']}\" ({existing['status']}) on {existing['created_at'][:10]}.",
+                "existing_id": existing["id"],
+                "existing_filename": existing["filename"],
+                "existing_status": existing["status"],
+            },
+        )
+
+    # ── Save to disk ──
     doc_id = str(uuid.uuid4())
     disk_path = UPLOAD_DIR / f"{doc_id}{ext}"
-    with disk_path.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
-    size = disk_path.stat().st_size
+    disk_path.write_bytes(raw_content)
+    size = len(raw_content)
 
     parsed_tags = [t.strip() for t in tags.split(",") if t.strip()]
 
@@ -92,6 +114,7 @@ async def upload_document(
         "chunk_count": 0,
         "page_count": 0,
         "tags": parsed_tags,
+        "content_hash": content_hash,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "indexed_at": None,
         "error": None,
@@ -235,6 +258,51 @@ async def delete_document(
     )
     return {"ok": True}
 
+
+@router.post("/{doc_id}/reprocess")
+async def reprocess_document(
+    doc_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    user: dict = Depends(require_role(ROLE_EDITOR)),
+):
+    """Re-trigger ingestion for a failed or stalled document."""
+    doc = await documents.find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if user["role"] != "owner" and doc["owner_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    disk_path = Path(doc["disk_path"])
+    if not disk_path.exists():
+        raise HTTPException(status_code=400, detail="Original file no longer on disk. Please re-upload.")
+
+    # Reset status
+    await documents.update_one(
+        {"id": doc_id},
+        {"$set": {"status": "queued", "progress": 5, "error": None, "chunk_count": 0}},
+    )
+    # Remove existing chunks from vector store
+    delete_document_chunks(doc_id)
+
+    async def _run():
+        try:
+            await ingest_document(doc_id, disk_path, doc["filename"], doc["owner_id"])
+        except Exception:
+            pass
+
+    background_tasks.add_task(_run)
+
+    await log_event(
+        "document.reprocess",
+        actor_id=user["id"],
+        actor_role=user["role"],
+        resource_type="document",
+        resource_id=doc_id,
+        ip=request.client.host if request.client else None,
+        metadata={"filename": doc["filename"]},
+    )
+    return {"id": doc_id, "status": "queued"}
 
 
 # ---------------------------------------------------------------------------

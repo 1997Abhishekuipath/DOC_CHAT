@@ -300,3 +300,96 @@ test_plan:
 agent_communication:
     - agent: "testing"
       message: "Completed comprehensive testing of DocChat Embed Widget feature. All UI elements are functional and rendering correctly. Navigation works, empty state displays properly, widget builder loads with all tabs (Appearance, Behaviour, Security), live preview updates correctly. No console errors or network failures detected. Document scope shows expected message when no documents are available. All form fields are accessible and functional."
+
+
+user_problem_statement: "Test document upload improvements: duplicate detection, failed document retry button, and PPTX/XLSX/Image file format support"
+
+frontend:
+  - task: "Duplicate detection on file upload"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/UploadDialog.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Duplicate detection working correctly. When uploading the same file twice, a toast notification appears with message 'Duplicate detected: [filename] already exists ([status])'. The toast correctly displays the existing filename and document status. Backend returns 409 status with DUPLICATE code, frontend handles it properly."
+
+  - task: "Failed document retry button"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/Dashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Retry button working correctly. Failed documents display a circular arrow (ArrowClockwise) icon button next to the FAILED status badge. Clicking the retry button successfully triggers reprocessing via POST /v2/documents/{id}/reprocess. Toast notification confirms 'Retrying [filename]…' and document status changes from FAILED to QUEUED with progress bar."
+
+  - task: "PPTX/XLSX/Image file format support"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/UploadDialog.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "File format support working correctly. Upload dialog file picker accepts all expected formats: .pptx, .xlsx, .csv, .png, .jpg, .jpeg. The accept attribute includes all formats, and the UI displays 'PDF · DOCX · Text · Markdown · PowerPoint · Excel · CSV · Image (OCR)'. Feature flags ENABLE_PPTX_SUPPORT, ENABLE_EXCEL_SUPPORT, and ENABLE_IMAGE_OCR are enabled by default in backend config."
+
+backend:
+  - task: "Duplicate detection API (SHA-256 hash check)"
+    implemented: true
+    working: true
+    file: "/app/backend/routers/documents.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Backend duplicate detection working correctly. Computes SHA-256 hash of file content and checks for existing documents with same hash. Returns 409 status with detailed error including code='DUPLICATE', existing_filename, existing_status, and message. Tested successfully with duplicate file upload."
+
+  - task: "Document reprocess endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/routers/documents.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Reprocess endpoint working correctly. POST /v2/documents/{id}/reprocess successfully resets document status to 'queued', removes existing chunks, and re-triggers ingestion. Tested with failed document 'erLicence.png' - status changed from FAILED to QUEUED with progress bar."
+
+  - task: "Extended file format support (PPTX/XLSX/Images)"
+    implemented: true
+    working: true
+    file: "/app/backend/core/config.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Extended format support enabled. Feature flags ENABLE_PPTX_SUPPORT, ENABLE_EXCEL_SUPPORT, and ENABLE_IMAGE_OCR default to True in config.py. Backend accepts .pptx, .xlsx, .csv, .png, .jpg, .jpeg files. Verified through /v2/flags endpoint and file upload dialog."
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 2
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+    - agent: "main"
+      message: "Requesting testing of document upload improvements: 1) Duplicate detection, 2) Failed document retry button, 3) PPTX/XLSX/Image file format support"
+    - agent: "testing"
+      message: "Completed testing of document upload improvements. All three features are working correctly: 1) Duplicate detection shows proper toast with filename and status, 2) Failed documents display retry button that successfully triggers reprocessing, 3) File picker accepts PPTX, XLSX, CSV, PNG, JPG, JPEG formats as expected."

@@ -58,7 +58,16 @@ export default function UploadDialog({ open, onOpenChange, onUploaded }) {
             onOpenChange(false);
             onUploaded?.();
         } catch (e) {
-            toast.error(e?.response?.data?.detail || "Upload failed");
+            const detail = e?.response?.data?.detail;
+            if (e?.response?.status === 409 && detail?.code === "DUPLICATE") {
+                // Show a specific duplicate warning with the existing doc info
+                toast.error(
+                    `Duplicate detected: "${detail.existing_filename}" already exists (${detail.existing_status}).`,
+                    { duration: 6000 }
+                );
+            } else {
+                toast.error(typeof detail === "string" ? detail : "Upload failed");
+            }
         } finally {
             setBusy(false);
         }

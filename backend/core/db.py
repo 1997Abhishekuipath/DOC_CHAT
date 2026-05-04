@@ -28,6 +28,7 @@ async def init_indexes():
     """Create indexes for common queries."""
     await users.create_index("email", unique=True)
     await documents.create_index([("owner_id", 1), ("created_at", -1)])
+    await documents.create_index("content_hash")  # fast duplicate detection
     await sessions.create_index([("user_id", 1), ("updated_at", -1)])
     await messages.create_index([("session_id", 1), ("created_at", 1)])
     await share_links.create_index("token", unique=True)

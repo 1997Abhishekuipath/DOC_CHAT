@@ -1,0 +1,2 @@
+This is a test document for duplicate detection testing.
+Created at: 500095.428074809

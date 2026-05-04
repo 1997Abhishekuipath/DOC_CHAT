@@ -275,18 +275,44 @@ def _extract_csv(file_path: Path) -> List[Tuple[int, str]]:
 # Image OCR
 # ---------------------------------------------------------------------------
 def _extract_image_ocr(file_path: Path) -> List[Tuple[int, str]]:
+    """Extract text from image using Tesseract OCR.
+    Falls back to a metadata description if no text is found, so the image
+    is still indexed and discoverable by filename.
+    """
+    ocr_text = ""
     try:
         from PIL import Image
         import pytesseract
+        try:
+            with Image.open(str(file_path)) as img:
+                # Improve OCR accuracy: convert to grayscale
+                gray = img.convert("L")
+                ocr_text = pytesseract.image_to_string(gray) or ""
+                ocr_text = ocr_text.strip()
+        except Exception:
+            ocr_text = ""
     except ImportError:
-        return []
+        pass
+
+    if ocr_text:
+        return [(1, ocr_text)]
+
+    # Fallback: index with filename metadata so the image is still discoverable
+    name = file_path.stem
+    fallback = f"[Image file: {name}] This is an image document. No machine-readable text was detected."
     try:
+        from PIL import Image
         with Image.open(str(file_path)) as img:
-            text = pytesseract.image_to_string(img) or ""
+            w, h = img.size
+            mode = img.mode
+            fallback = (
+                f"[Image file: {name}] Format: {img.format or 'unknown'}, "
+                f"Size: {w}x{h}px, Mode: {mode}. "
+                f"No machine-readable text was detected by OCR."
+            )
     except Exception:
-        text = ""
-    text = text.strip()
-    return [(1, text)] if text else []
+        pass
+    return [(1, fallback)]
 
 
 # ---------------------------------------------------------------------------
