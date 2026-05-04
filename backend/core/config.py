@@ -64,7 +64,7 @@ CHROMA_COLLECTION = f"docchat_{EMBEDDING_PROVIDER}"
 
 # Feature flags
 FEATURE_FLAGS = {
-    "ENABLE_HYBRID_SEARCH": _bool_env("ENABLE_HYBRID_SEARCH", False),
+    "ENABLE_HYBRID_SEARCH": _bool_env("ENABLE_HYBRID_SEARCH", True),
     "ENABLE_RERANKING": _bool_env("ENABLE_RERANKING", False),
     "ENABLE_QUERY_REWRITING": _bool_env("ENABLE_QUERY_REWRITING", False),
     "ENABLE_MULTI_QUERY_EXPANSION": _bool_env("ENABLE_MULTI_QUERY_EXPANSION", False),
@@ -72,7 +72,7 @@ FEATURE_FLAGS = {
     "ENABLE_CONFIDENCE_SCORING": _bool_env("ENABLE_CONFIDENCE_SCORING", True),
     "ENABLE_HALLUCINATION_DETECTION": _bool_env("ENABLE_HALLUCINATION_DETECTION", False),
     "ENABLE_OCR": _bool_env("ENABLE_OCR", False),
-    "ENABLE_TABLE_EXTRACTION": _bool_env("ENABLE_TABLE_EXTRACTION", False),
+    "ENABLE_TABLE_EXTRACTION": _bool_env("ENABLE_TABLE_EXTRACTION", True),
     "ENABLE_ENTITY_EXTRACTION": _bool_env("ENABLE_ENTITY_EXTRACTION", False),
     "ENABLE_PII_MASKING": _bool_env("ENABLE_PII_MASKING", False),
     "ENABLE_RBAC": _bool_env("ENABLE_RBAC", True),
@@ -88,6 +88,10 @@ FEATURE_FLAGS = {
     "ENABLE_IMAGE_OCR": _bool_env("ENABLE_IMAGE_OCR", True),
     "ENABLE_SCANNED_PDF_OCR": _bool_env("ENABLE_SCANNED_PDF_OCR", True),
     "ENABLE_GOOGLE_SLIDES": _bool_env("ENABLE_GOOGLE_SLIDES", False),
+    # --- Advanced multi-modal extraction (May 2026) ---
+    "ENABLE_ADVANCED_OCR": _bool_env("ENABLE_ADVANCED_OCR", True),
+    "ENABLE_IMAGE_IN_PDF_OCR": _bool_env("ENABLE_IMAGE_IN_PDF_OCR", True),
+    "ENABLE_PPTX_IMAGE_OCR": _bool_env("ENABLE_PPTX_IMAGE_OCR", True),
     # --- Embeddable chat widget (Apr 2026) ---
     "ENABLE_EMBED_WIDGET": _bool_env("ENABLE_EMBED_WIDGET", True),
 }

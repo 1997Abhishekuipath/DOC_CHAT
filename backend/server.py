@@ -63,3 +63,32 @@ async def startup():
         logger.info("MongoDB indexes initialized")
     except Exception as e:
         logger.warning("init_indexes failed: %s", e)
+
+    # Ensure Tesseract OCR binary is available (required for image/PDF OCR)
+    import shutil, subprocess
+    if not shutil.which("tesseract"):
+        logger.warning("Tesseract not found — installing via apt-get…")
+        try:
+            subprocess.run(
+                ["apt-get", "install", "-y", "-qq", "tesseract-ocr", "tesseract-ocr-eng"],
+                check=True, capture_output=True, timeout=120,
+            )
+            logger.info("Tesseract installed successfully")
+        except Exception as te:
+            logger.error("Tesseract auto-install failed: %s — OCR features will be degraded", te)
+    else:
+        logger.info("Tesseract OK: %s", shutil.which("tesseract"))
+
+    # Ensure poppler-utils (pdftoppm) is available for scanned PDF OCR
+    if not shutil.which("pdftoppm"):
+        logger.warning("pdftoppm not found — installing poppler-utils…")
+        try:
+            subprocess.run(
+                ["apt-get", "install", "-y", "-qq", "poppler-utils"],
+                check=True, capture_output=True, timeout=120,
+            )
+            logger.info("poppler-utils installed successfully")
+        except Exception as pe:
+            logger.error("poppler-utils auto-install failed: %s — scanned PDF OCR skipped", pe)
+    else:
+        logger.info("pdftoppm OK: %s", shutil.which("pdftoppm"))
