@@ -22,7 +22,6 @@ from core.config import (
     FEATURE_FLAGS,
     LLM_MODEL,
     LLM_PROVIDER,
-    _bool_env,
 )
 from core.deps import ROLE_OWNER, get_current_user, require_role
 
@@ -45,6 +44,10 @@ async def get_providers(_: dict = Depends(get_current_user)):
 
 # ── Admin CRUD router (owner-only) ────────────────────────────────────────────
 admin_router = APIRouter(prefix="/admin/flags", tags=["admin"])
+
+# Capture the original (env-resolved) defaults at module import time, BEFORE any
+# runtime PATCH mutates FEATURE_FLAGS. This is the source-of-truth for reset().
+_ORIGINAL_FLAGS: Dict[str, bool] = dict(FEATURE_FLAGS)
 
 # Runtime overrides — process-lifetime only; reset on server restart
 _runtime_overrides: Dict[str, bool] = {}
@@ -82,8 +85,8 @@ async def update_flag(
 
 @admin_router.post("/reset")
 async def reset_flags(_: dict = Depends(require_role(ROLE_OWNER))):
-    """Reset all runtime overrides back to environment-variable defaults."""
+    """Reset all runtime overrides back to the original env-resolved defaults."""
     _runtime_overrides.clear()
-    for k in list(FEATURE_FLAGS.keys()):
-        FEATURE_FLAGS[k] = _bool_env(k, FEATURE_FLAGS[k])
+    for k, v in _ORIGINAL_FLAGS.items():
+        FEATURE_FLAGS[k] = v
     return {"status": "reset", "flags": dict(FEATURE_FLAGS)}
