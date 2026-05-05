@@ -1,0 +1,59 @@
+{
+  "summary": "Validated newly added DocChat features: Admin feature-flags CRUD, 50 MB upload cap, SHA-256 duplicate prevention (409), reprocess endpoint, RAG query truncation (>2000 chars), and ENABLE_VISION_LLM_FOR_PDF_IMAGES flag gating. Created /app/backend/tests/test_new_features.py with 22 tests; 19 passed, 1 skipped (reportlab unavailable in env), 2 failed — both surface ONE real backend bug in /api/admin/flags/reset (see RCA). Frontend AdminFlags page at /app/admin/flags renders correctly with 28 toggle switches, lists all flags grouped by section (Retrieval & Search / Answer Quality / Document Extraction / etc.), and 'Reset all to defaults' button works. No frontend regressions: dashboard, chat, share-links, embed-widget pages all load. Endpoint paths in the original request used /api/v1/* but the actual backend uses /api/v2/* — tests written against actual paths.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/admin/flags/reset",
+        "issue": "Reset is a no-op for any flag whose env-var is NOT set. Code does `FEATURE_FLAGS[k] = _bool_env(k, FEATURE_FLAGS[k])` — passing the *current* (already-mutated) value as the fallback. After PATCH sets a flag to True and reset is called, _bool_env(name, True) returns True because the env var is missing and the fallback is the mutated value. Reset never reverts to the original default.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "Original review request paths",
+        "issue": "Review request referenced /api/v1/documents/upload + /api/v1/documents/{id}/reprocess, but actual backend exposes /api/v2/documents/ingest and /api/v2/documents/{id}/reprocess. Document the correct paths in PRD/handoff."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Admin Feature Flags route",
+        "issue": "Review request stated route is /admin/flags but actual React Router route is /app/admin/flags (nested under /app). Users reach it via sidebar nav (testid=nav-admin-flags) so no end-user impact, but external links/docs should use /app/admin/flags.",
+        "affected_selectors": []
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/test_reports/pytest/pytest_new_features.xml"
+  ],
+  "action_items": [
+    "Fix reset_flags in /app/backend/routers/flags.py: capture original FEATURE_FLAGS at module load (e.g., _ORIGINAL_FLAGS = dict(FEATURE_FLAGS)) and on reset do `FEATURE_FLAGS[k] = _ORIGINAL_FLAGS[k]` (or re-call _bool_env with the hard-coded default). Current implementation cannot revert a runtime PATCH for any flag not present in .env.",
+    "Decide whether to add ENABLE_VISION_LLM_FOR_PDF_IMAGES=false to backend/.env so that reset has a deterministic source-of-truth (still recommended but only a workaround unless reset bug is fixed).",
+    "Update PRD/docs to reference correct paths: /api/v2/documents/ingest, /api/v2/documents/{id}/reprocess, frontend route /app/admin/flags."
+  ],
+  "critical_code_review_comments": [
+    "routers/flags.py reset_flags() uses already-mutated FEATURE_FLAGS[k] as the default for _bool_env — original defaults are lost. Capture _ORIGINAL_FLAGS at module load.",
+    "routers/flags.py PATCH mutates the global FEATURE_FLAGS dict and ALSO writes to _runtime_overrides — but reset_flags clears overrides yet the live dict already has the new values; combined with the bug above, reset is doubly broken for env-unset flags.",
+    "routers/documents.py upload_document does file.read() of full payload BEFORE the size check on raw bytes — a client streaming a 10 GB file will buffer the whole thing in memory before the 413 fires. Stream-and-cap or use Starlette MaxBodySize middleware.",
+    "routers/documents.py duplicate query for non-owner users scopes by owner_id, meaning two different users can each upload the same exact bytes — this is by design but worth documenting (no global dedup).",
+    "services/rag.py truncates query at 2000 chars silently with no warning header to client; consider returning an X-Query-Truncated indicator.",
+    "Admin flags 'note' field says overrides reset on server restart unless persisted to .env — but there is no /persist endpoint; document this is operator-manual."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py"
+  ],
+  "success_rate": {
+    "backend": "86% (19/22 — 2 failures both root-caused to single reset_flags bug, 1 skip due to missing reportlab)",
+    "frontend": "100% (admin flags renders, toggles, reset button, no console errors; smoke pages load)"
+  },
+  "test_credentials": "owner@example.com / test1234 (existing seeded owner). Note: /app/memory/test_credentials.md lists admin@docchat.com / Admin123! as the owner but that account does NOT exist in this environment — login returns 401. Used the working seeded owner instead. Viewer users created dynamically with TEST_viewer_* prefix.",
+  "seed_data_creation": "Tests upload ~3 small TEST_-prefixed text/PDF documents (TEST_dup.txt, TEST_big.txt rejected pre-write, TEST_vision_off.pdf skipped). Not auto-cleaned; can DELETE via /api/v2/documents/{id}.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 22 new-feature tests live in /app/backend/tests/test_new_features.py — re-run with `pytest /app/backend/tests/test_new_features.py -v`. Both failures (test_reset_flags_owner, test_flag_default_false) point to the SAME reset bug in routers/flags.py. After main agent fixes reset_flags to use captured original defaults, both tests should pass without modification. The vision-PDF flag-gating ingestion test self-skips when reportlab is unavailable; install reportlab in backend if you need that path covered. Frontend AdminFlags route is /app/admin/flags (not /admin/flags). All other features (PATCH toggle, 404 invalid flag, 403 non-owner, 413 oversize, 409 duplicate, reprocess, RAG long-query no-crash, smoke endpoints) verified working.",
+  "rca_of_the_issue": "Reset Flags Bug: routers/flags.py:88 reads `FEATURE_FLAGS[k] = _bool_env(k, FEATURE_FLAGS[k])`. Because PATCH on line 79 mutates FEATURE_FLAGS in-place, by the time reset runs the 'default' passed to _bool_env IS the mutated value. _bool_env at config.py:11 returns os.environ.get(name, str(default)).lower() in (truthy set) — when env var is unset, it falls back to the mutated value, so reset is a no-op for env-unset flags (which is most of them). REPRODUCTION: 1) GET /api/admin/flags/ returns ENABLE_VISION_LLM_FOR_PDF_IMAGES=false. 2) PATCH /api/admin/flags/ENABLE_VISION_LLM_FOR_PDF_IMAGES with {value:true} → 200, value=true. 3) POST /api/admin/flags/reset → 200, status='reset'. 4) GET /api/admin/flags/ STILL shows ENABLE_VISION_LLM_FOR_PDF_IMAGES=true (BUG — should be false). MITIGATION: at module import, capture `_ORIGINAL_FLAGS = {k: _bool_env(k, v) for k,v in FEATURE_FLAGS.items()}` BEFORE any mutation, then reset_flags should do `for k in _ORIGINAL_FLAGS: FEATURE_FLAGS[k] = _ORIGINAL_FLAGS[k]; _runtime_overrides.clear()`."
+}
