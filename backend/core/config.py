@@ -13,6 +13,13 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 # Core secrets
 JWT_SECRET = os.environ.get("JWT_SECRET", "docchat-dev-secret-change-in-prod")
+import warnings  # noqa: E402
+if JWT_SECRET == "docchat-dev-secret-change-in-prod":
+    warnings.warn(
+        "JWT_SECRET is using the default insecure value. "
+        "Set JWT_SECRET in .env before deploying.",
+        stacklevel=2,
+    )
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_EXPIRE_MINUTES = 60 * 24  # 24h
 JWT_REFRESH_EXPIRE_DAYS = 30
@@ -42,6 +49,7 @@ EMERGENT_BASE_URL = os.environ.get(
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # Models (each provider has sensible defaults; override via env)
 LLM_MODEL = os.environ.get(
@@ -92,6 +100,7 @@ FEATURE_FLAGS = {
     "ENABLE_ADVANCED_OCR": _bool_env("ENABLE_ADVANCED_OCR", True),
     "ENABLE_IMAGE_IN_PDF_OCR": _bool_env("ENABLE_IMAGE_IN_PDF_OCR", True),
     "ENABLE_PPTX_IMAGE_OCR": _bool_env("ENABLE_PPTX_IMAGE_OCR", True),
+    "ENABLE_VISION_LLM_FOR_PDF_IMAGES": _bool_env("ENABLE_VISION_LLM_FOR_PDF_IMAGES", False),
     # --- Embeddable chat widget (Apr 2026) ---
     "ENABLE_EMBED_WIDGET": _bool_env("ENABLE_EMBED_WIDGET", True),
 }

@@ -33,12 +33,15 @@ from __future__ import annotations
 import csv as _csv
 import io
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core.config import is_enabled
 
 logger = logging.getLogger("docchat.extraction")
+
+_MIN_OCR_TEXT_LEN = 30  # chars below this threshold triggers Vision LLM fallback
 
 # ── Extension sets ────────────────────────────────────────────────────────────
 _CORE_EXTS   = {".pdf", ".docx", ".txt", ".md"}
@@ -253,10 +256,58 @@ def _extract_pdf_tables(file_path: Path) -> Dict[int, str]:
     }
 
 
-def _extract_pdf_embedded_image_ocr(file_path: Path) -> Dict[int, str]:
-    """Extract embedded images from PDF pages via PyMuPDF and OCR them.
-    Returns {page_num: image_ocr_text}.
+def _describe_image_with_vision_llm(image_bytes: bytes, image_ext: str, source_hint: str = "") -> str:
+    """Send image to Claude Vision for semantic description.
+    Fallback when OCR yields little/no text (charts, diagrams, photos).
+    Requires ENABLE_VISION_LLM_FOR_PDF_IMAGES=true and ANTHROPIC_API_KEY set.
     """
+    if not is_enabled("ENABLE_VISION_LLM_FOR_PDF_IMAGES"):
+        return ""
+    mime_map = {
+        "png": "image/png", "jpeg": "image/jpeg",
+        "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp",
+    }
+    media_type = mime_map.get(image_ext.lower(), "image/png")
+    try:
+        import base64
+        import anthropic
+        b64_data = base64.standard_b64encode(image_bytes).decode("utf-8")
+        client = anthropic.Anthropic()
+        response = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": media_type, "data": b64_data},
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            "You are a document analysis assistant. Describe this image from a PDF in detail. "
+                            "If chart/graph: extract axis labels, data values, trends, key findings. "
+                            "If table-as-image: reproduce in pipe-delimited text. "
+                            "If diagram/flowchart: describe each component and relationship. "
+                            "If photo/illustration: describe what it depicts. "
+                            "Be thorough — used for document question-answering."
+                        ),
+                    },
+                ],
+            }],
+        )
+        description = (response.content[0].text or "").strip()
+        if description:
+            logger.debug("Vision LLM described image (%s): %d chars", source_hint, len(description))
+        return description
+    except Exception as e:
+        logger.warning("Vision LLM image description failed (%s): %s", source_hint, e)
+        return ""
+
+
+def _extract_pdf_embedded_image_ocr(file_path: Path) -> Dict[int, str]:
+    """Two-stage pipeline: OCR first, Vision LLM fallback for non-text images."""
     if not is_enabled("ENABLE_IMAGE_IN_PDF_OCR"):
         return {}
     try:
@@ -275,29 +326,41 @@ def _extract_pdf_embedded_image_ocr(file_path: Path) -> Dict[int, str]:
                 image_list = doc[page_idx].get_images(full=True)
             except Exception:
                 continue
-
             for img_idx, img_info in enumerate(image_list):
                 xref = img_info[0]
                 try:
                     base_image = doc.extract_image(xref)
                     image_bytes = base_image.get("image", b"")
+                    image_ext = base_image.get("ext", "png")
                     if not image_bytes:
                         continue
-                    pil_img = Image.open(io.BytesIO(image_bytes))
                     hint = f"pdf_p{page_num}_img{img_idx}"
+
+                    # Stage 1: OCR
+                    pil_img = Image.open(io.BytesIO(image_bytes))
                     ocr_text = _ocr_image(pil_img, source_hint=hint)
-                    if ocr_text:
+                    if ocr_text and len(ocr_text) >= _MIN_OCR_TEXT_LEN:
                         results.setdefault(page_num, []).append(ocr_text)
+                        continue
+
+                    # Stage 2: Vision LLM fallback
+                    vision_text = _describe_image_with_vision_llm(image_bytes, image_ext, source_hint=hint)
+                    if vision_text:
+                        combined = f"{ocr_text}\n\n{vision_text}" if ocr_text else vision_text
+                        results.setdefault(page_num, []).append(combined)
+                    elif ocr_text:
+                        results.setdefault(page_num, []).append(ocr_text)
+                    else:
+                        logger.debug("No content from image (p%d img%d) — skipping", page_num, img_idx)
                 except Exception as e:
-                    logger.debug("PDF image OCR failed (p%d img%d): %s", page_num, img_idx, e)
+                    logger.debug("PDF image processing failed (p%d img%d): %s", page_num, img_idx, e)
         doc.close()
     except Exception as e:
-        logger.warning("PDF embedded image OCR failed: %s", e)
+        logger.warning("PDF embedded image extraction failed: %s", e)
 
     return {
         pg: "[IMAGE_TEXT]\n" + "\n\n".join(txts)
-        for pg, txts in results.items()
-        if txts
+        for pg, txts in results.items() if txts
     }
 
 
@@ -319,10 +382,14 @@ def _extract_pdf(file_path: Path) -> List[Tuple[int, str]]:
         logger.error("PdfReader failed on %s: %s", file_path.name, e)
         return []
 
+    MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "500"))
+    if len(reader.pages) > MAX_PDF_PAGES:
+        logger.warning("PDF has %d pages, capping at %d", len(reader.pages), MAX_PDF_PAGES)
+
     result: List[Tuple[int, str]] = []
     empty_pages: List[int] = []
 
-    for i, page in enumerate(reader.pages, start=1):
+    for i, page in enumerate(list(reader.pages)[:MAX_PDF_PAGES], start=1):
         try:
             native_text = (page.extract_text() or "").strip()
         except Exception:

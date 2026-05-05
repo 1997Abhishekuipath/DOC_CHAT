@@ -16,6 +16,7 @@ import AdminAudit from "@/pages/AdminAudit";
 import AdminUsers from "@/pages/AdminUsers";
 import Settings from "@/pages/Settings";
 import EmbedWidget from "@/pages/EmbedWidget";
+import AdminFlags from "@/pages/AdminFlags";
 
 import "@/App.css";
 
@@ -46,6 +47,7 @@ function App() {
                         <Route path="admin/analytics" element={<PrivateRoute requireRole="owner"><AdminAnalytics /></PrivateRoute>} />
                         <Route path="admin/audit" element={<PrivateRoute requireRole="owner"><AdminAudit /></PrivateRoute>} />
                         <Route path="admin/users" element={<PrivateRoute requireRole="owner"><AdminUsers /></PrivateRoute>} />
+                        <Route path="admin/flags" element={<PrivateRoute requireRole="owner"><AdminFlags /></PrivateRoute>} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

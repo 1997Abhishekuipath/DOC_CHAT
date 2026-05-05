@@ -23,6 +23,14 @@ from services.ingestion import ingest_document
 
 router = APIRouter(prefix="/v2/documents", tags=["documents"])
 
+# ── Upload validation constants ───────────────────────────────────────────────
+MAX_FILE_SIZE_MB = 50
+ALLOWED_EXTENSIONS = {
+    ".pdf", ".docx", ".txt", ".md",
+    ".pptx", ".xlsx", ".csv",
+    ".png", ".jpg", ".jpeg",
+}
+
 
 class DocumentOut(BaseModel):
     id: str
@@ -51,6 +59,19 @@ async def upload_document(
     user: dict = Depends(require_role(ROLE_EDITOR)),
 ):
     ext = Path(file.filename or "").suffix.lower()
+
+    # ── Hard validation: size + allowed extensions ────────────────────────────
+    if file.size and file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds {MAX_FILE_SIZE_MB} MB limit.",
+        )
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"File type '{ext}' is not supported.",
+        )
+
     enabled_exts = current_supported_extensions()
 
     if ext in ALL_KNOWN_EXTENSIONS and ext not in enabled_exts:
@@ -73,6 +94,11 @@ async def upload_document(
 
     # ── Read file content & compute SHA-256 hash for duplicate detection ──
     raw_content = await file.read()
+    if len(raw_content) > MAX_FILE_SIZE_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds {MAX_FILE_SIZE_MB} MB limit.",
+        )
     content_hash = hashlib.sha256(raw_content).hexdigest()
 
     # ── Duplicate check: same hash, same owner (or any owner for 'owner' role) ──

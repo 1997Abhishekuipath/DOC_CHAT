@@ -13,6 +13,7 @@ import {
     SignOut,
     CaretRight,
     Code,
+    ToggleRight,
 } from "@phosphor-icons/react";
 
 function NavItem({ to, end, icon: Icon, label, testId }) {
@@ -65,6 +66,7 @@ export default function AppLayout() {
                             <NavItem to="/app/admin/analytics" icon={ChartLine} label="Analytics" testId="nav-admin-analytics" />
                             <NavItem to="/app/admin/audit" icon={ListMagnifyingGlass} label="Audit log" testId="nav-admin-audit" />
                             <NavItem to="/app/admin/users" icon={UsersThree} label="Users" testId="nav-admin-users" />
+                            <NavItem to="/app/admin/flags" icon={ToggleRight} label="Feature flags" testId="nav-admin-flags" />
                         </>
                     )}
 

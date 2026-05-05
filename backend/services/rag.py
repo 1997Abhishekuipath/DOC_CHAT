@@ -71,6 +71,10 @@ def build_messages(query: str, hits: List[dict], history: List[dict] | None = No
 async def answer_stream(
     query: str, document_ids: List[str], history: List[dict] | None = None, top_k: int = 5
 ) -> tuple[AsyncIterator[str], List[dict], str]:
+    if not query or not query.strip():
+        raise ValueError("Query must not be empty")
+    if len(query) > 2000:
+        query = query[:2000]
     hits = await retrieve(query, document_ids, top_k=top_k)
     messages = build_messages(query, hits, history)
     confidence = _confidence_from_hits(hits)
@@ -80,6 +84,10 @@ async def answer_stream(
 async def answer(
     query: str, document_ids: List[str], history: List[dict] | None = None, top_k: int = 5
 ) -> tuple[str, List[dict], str]:
+    if not query or not query.strip():
+        raise ValueError("Query must not be empty")
+    if len(query) > 2000:
+        query = query[:2000]
     hits = await retrieve(query, document_ids, top_k=top_k)
     messages = build_messages(query, hits, history)
     confidence = _confidence_from_hits(hits)
