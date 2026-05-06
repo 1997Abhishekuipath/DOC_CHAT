@@ -79,6 +79,29 @@ export default function GuestShare() {
 
     useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streaming]);
 
+    const openSource = async (docId, filename) => {
+        if (!guestToken || !docId) return;
+        try {
+            const res = await fetch(
+                `${API_BASE}/v2/share-links/${token}/document/${docId}/file`,
+                { headers: { "x-guest-token": guestToken } }
+            );
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const w = window.open(url, "_blank");
+            if (!w) {
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename || "document";
+                a.click();
+            }
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        } catch (e) {
+            toast.error("Could not open source");
+        }
+    };
+
     const send = async (textOverride) => {
         const text = (textOverride ?? input).trim();
         if (!text || streaming || !guestToken) return;
@@ -258,12 +281,19 @@ export default function GuestShare() {
                                             <div className="mt-4 space-y-1 text-xs">
                                                 <div className="dc-overline mb-2">Sources</div>
                                                 {m.citations.map((c) => (
-                                                    <div key={c.chunk_id} className="flex items-center gap-2 py-1.5 px-2 border border-border rounded-sm">
+                                                    <button
+                                                        type="button"
+                                                        key={c.chunk_id}
+                                                        onClick={() => openSource(c.document_id, c.filename)}
+                                                        className="w-full flex items-center gap-2 py-1.5 px-2 border border-border rounded-sm hover:bg-secondary/50 transition-colors text-left"
+                                                        data-testid={`share-source-${c.chunk_id}`}
+                                                        title="Open source document"
+                                                    >
                                                         <span className="font-mono text-[11px] bg-secondary border border-border px-1.5 py-0.5 rounded-sm">[{c.index}]</span>
                                                         <FileText size={13} className="text-muted-foreground" />
                                                         <span className="truncate flex-1">{c.filename}</span>
                                                         <span className="text-muted-foreground font-mono">p.{c.page}</span>
-                                                    </div>
+                                                    </button>
                                                 ))}
                                             </div>
                                         )}

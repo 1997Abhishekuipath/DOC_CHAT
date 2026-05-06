@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { API_BASE } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
     Dialog,
     DialogContent,
@@ -64,6 +66,11 @@ export default function Dashboard() {
     const [assignDoc, setAssignDoc] = useState(null);
     const [assignSelection, setAssignSelection] = useState([]);
     const [assignBusy, setAssignBusy] = useState(false);
+
+    // Filters (client-side)
+    const [uploaderFilter, setUploaderFilter] = useState("all"); // all | self | owner | <userId>
+    const [accessFilter, setAccessFilter] = useState("all"); // all | self | assigned
+    const [statusFilter, setStatusFilter] = useState("all"); // all | ready | processing | failed
 
     const load = async () => {
         try {
@@ -188,6 +195,60 @@ export default function Dashboard() {
         setAssignSelection((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
     };
 
+    // Distinct uploaders (for owner filter dropdown)
+    const uploaderOptions = useMemo(() => {
+        const map = new Map();
+        for (const d of docs) {
+            if (!d.owner_id) continue;
+            if (!map.has(d.owner_id)) {
+                map.set(d.owner_id, { id: d.owner_id, name: d.owner_name || d.owner_id });
+            }
+        }
+        return Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }, [docs]);
+
+    const filteredDocs = useMemo(() => {
+        const sq = q.trim().toLowerCase();
+        return docs.filter((d) => {
+            // Search across filename, tags, uploader name
+            if (sq) {
+                const hay = [
+                    d.filename || "",
+                    d.owner_name || "",
+                    ...(d.tags || []),
+                ].join(" ").toLowerCase();
+                if (!hay.includes(sq)) return false;
+            }
+            if (statusFilter !== "all") {
+                const s = d.status === "ready" || d.status === "failed" ? d.status : "processing";
+                if (s !== statusFilter) return false;
+            }
+            // Access type — only meaningful when current user is not the doc owner
+            if (accessFilter === "self") {
+                if (d.owner_id !== currentUser?.id) return false;
+            } else if (accessFilter === "assigned") {
+                const isAssigned = (d.assigned_to || []).includes(currentUser?.id);
+                if (!isAssigned || d.owner_id === currentUser?.id) return false;
+            }
+            // Uploader filter — only relevant for owners
+            if (uploaderFilter === "self") {
+                if (d.owner_id !== currentUser?.id) return false;
+            } else if (uploaderFilter === "owner") {
+                // Docs uploaded by any user with role=owner
+                const ownerIds = new Set(uploaderOptions.map((u) => u.id));
+                // We don't know roles per uploader from docs alone; treat
+                // "owner" filter as "uploaded by current user OR by an editor we don't recognize".
+                // Best-effort: rely on editors list to subtract editor-uploaded docs.
+                const editorIds = new Set(editors.map((e) => e.id));
+                if (editorIds.has(d.owner_id)) return false;
+                if (!ownerIds.has(d.owner_id)) return false;
+            } else if (uploaderFilter !== "all") {
+                if (d.owner_id !== uploaderFilter) return false;
+            }
+            return true;
+        });
+    }, [docs, q, statusFilter, accessFilter, uploaderFilter, currentUser?.id, editors, uploaderOptions]);
+
     return (
         <div>
             <header className="h-16 border-b border-border px-8 flex items-center justify-between sticky top-0 bg-background z-10">
@@ -211,18 +272,63 @@ export default function Dashboard() {
             </header>
 
             <div className="p-8 max-w-7xl">
-                <div className="flex items-center gap-3 mb-6">
-                    <div className="relative flex-1 max-w-md">
-                        <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <div className="flex items-end gap-3 mb-4 flex-wrap" data-testid="document-filters">
+                    <div className="relative flex-1 min-w-[220px] max-w-md">
+                        <MagnifyingGlass size={16} className="absolute left-3 top-[34px] -translate-y-1/2 text-muted-foreground" />
+                        <Label className="dc-overline">Search</Label>
                         <Input
-                            placeholder="Search documents…"
-                            className="pl-9 h-10"
+                            placeholder="Document name, tag, or uploader…"
+                            className="pl-9 h-9 mt-1"
                             value={q}
                             onChange={(e) => setQ(e.target.value)}
                             data-testid="document-search-input"
                         />
                     </div>
-                    <Link to="/app/chat">
+                    {isOwner && (
+                        <div className="w-[170px]">
+                            <Label className="dc-overline">Uploaded by</Label>
+                            <Select value={uploaderFilter} onValueChange={setUploaderFilter}>
+                                <SelectTrigger className="mt-1 h-9" data-testid="document-filter-uploader">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    <SelectItem value="self">Me</SelectItem>
+                                    {uploaderOptions.map((u) => (
+                                        <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    <div className="w-[160px]">
+                        <Label className="dc-overline">Access</Label>
+                        <Select value={accessFilter} onValueChange={setAccessFilter}>
+                            <SelectTrigger className="mt-1 h-9" data-testid="document-filter-access">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="self">Uploaded by self</SelectItem>
+                                <SelectItem value="assigned">Assigned to me</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="w-[140px]">
+                        <Label className="dc-overline">Status</Label>
+                        <Select value={statusFilter} onValueChange={setStatusFilter}>
+                            <SelectTrigger className="mt-1 h-9" data-testid="document-filter-status">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="ready">Ready</SelectItem>
+                                <SelectItem value="processing">Processing</SelectItem>
+                                <SelectItem value="failed">Failed</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <Link to="/app/chat" className="ml-auto">
                         <Button variant="ghost" data-testid="chat-all-button">
                             <ChatCircle size={16} /> Chat with all
                         </Button>
@@ -244,7 +350,13 @@ export default function Dashboard() {
                     </div>
                 )}
 
-                {!loading && docs.length > 0 && (
+                {!loading && docs.length > 0 && filteredDocs.length === 0 && (
+                    <div className="border border-dashed border-border p-12 text-center text-sm text-muted-foreground" data-testid="document-no-match">
+                        No documents match the current filters.
+                    </div>
+                )}
+
+                {!loading && filteredDocs.length > 0 && (
                     <div className="border border-border">
                         <div className="hidden md:grid grid-cols-[36px_1fr_200px_110px_100px_80px_140px] gap-4 px-4 py-3 bg-secondary/50 border-b border-border text-xs font-mono uppercase tracking-wider text-muted-foreground">
                             <div></div>
@@ -255,7 +367,7 @@ export default function Dashboard() {
                             <div>Size</div>
                             <div className="text-right">Actions</div>
                         </div>
-                        {docs.map((d) => (
+                        {filteredDocs.map((d) => (
                             <div
                                 key={d.id}
                                 className="md:grid md:grid-cols-[36px_1fr_200px_110px_100px_80px_140px] gap-4 px-4 py-3 border-b border-border last:border-b-0 hover:bg-secondary/30 transition-colors items-center"
@@ -273,7 +385,17 @@ export default function Dashboard() {
                                     <IconForFile filename={d.filename} />
                                     <div className="min-w-0">
                                         <div className="font-medium truncate">{d.filename}</div>
-                                        <div className="text-xs text-muted-foreground">{new Date(d.created_at).toLocaleDateString()}</div>
+                                        <div className="text-xs text-muted-foreground">
+                                            {new Date(d.created_at).toLocaleDateString()}
+                                            {d.owner_name && (
+                                                <span className="ml-2" data-testid={`document-uploader-${d.id}`}>
+                                                    · by {d.owner_id === currentUser?.id ? "you" : d.owner_name}
+                                                </span>
+                                            )}
+                                            {(d.assigned_to || []).includes(currentUser?.id) && d.owner_id !== currentUser?.id && (
+                                                <span className="ml-2 font-mono text-[10px] uppercase text-brand-primary">assigned</span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             <div className="flex items-center gap-2 min-w-0">

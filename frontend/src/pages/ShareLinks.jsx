@@ -173,6 +173,12 @@ export default function ShareLinks() {
     const [createOpen, setCreateOpen] = useState(false);
     const [copied, setCopied] = useState(null);
 
+    // Filters
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [modeFilter, setModeFilter] = useState("all");
+    const [creatorFilter, setCreatorFilter] = useState("all"); // "all" | "owner" | <userId>
+    const [searchQ, setSearchQ] = useState("");
+
     const load = async () => {
         setLoading(true);
         try {
@@ -204,6 +210,45 @@ export default function ShareLinks() {
         }
     };
 
+    const linkStatus = (l) => {
+        if (l.revoked) return "revoked";
+        if (l.expires_at && new Date(l.expires_at) < new Date()) return "expired";
+        if (l.single_use && (l.opens || 0) > 0) return "used";
+        return "active";
+    };
+
+    // Distinct editor creators (excluding the "all/owner" buckets)
+    const editorCreators = React.useMemo(() => {
+        const map = new Map();
+        for (const l of links) {
+            if (l.creator_role !== "editor" || !l.creator_id) continue;
+            if (!map.has(l.creator_id)) {
+                map.set(l.creator_id, { id: l.creator_id, name: l.creator_name || l.creator_email || l.creator_id });
+            }
+        }
+        return Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }, [links]);
+
+    const filtered = React.useMemo(() => {
+        const q = searchQ.trim().toLowerCase();
+        return links.filter((l) => {
+            if (statusFilter !== "all" && linkStatus(l) !== statusFilter) return false;
+            if (modeFilter !== "all" && l.mode !== modeFilter) return false;
+            if (creatorFilter === "owner" && l.creator_role !== "owner") return false;
+            if (creatorFilter !== "all" && creatorFilter !== "owner" && l.creator_id !== creatorFilter) return false;
+            if (q) {
+                const hay = [
+                    l.title || "",
+                    l.creator_name || "",
+                    l.creator_email || "",
+                    ...(l.document_filenames || []),
+                ].join(" ").toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+    }, [links, statusFilter, modeFilter, creatorFilter, searchQ]);
+
     return (
         <div>
             <header className="h-16 border-b border-border px-8 flex items-center justify-between sticky top-0 bg-background z-10">
@@ -227,6 +272,64 @@ export default function ShareLinks() {
                     </div>
                 </div>
 
+                {/* Filters */}
+                <div className="flex flex-wrap items-end gap-3 mb-4" data-testid="share-filters">
+                    <div className="flex-1 min-w-[200px]">
+                        <Label className="dc-overline">Search</Label>
+                        <Input
+                            placeholder="Title, creator, or document name…"
+                            value={searchQ}
+                            onChange={(e) => setSearchQ(e.target.value)}
+                            className="mt-1 h-9"
+                            data-testid="share-filter-search"
+                        />
+                    </div>
+                    <div className="w-[140px]">
+                        <Label className="dc-overline">Status</Label>
+                        <Select value={statusFilter} onValueChange={setStatusFilter}>
+                            <SelectTrigger className="mt-1 h-9" data-testid="share-filter-status">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="revoked">Revoked</SelectItem>
+                                <SelectItem value="used">Used</SelectItem>
+                                <SelectItem value="expired">Expired</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="w-[140px]">
+                        <Label className="dc-overline">Mode</Label>
+                        <Select value={modeFilter} onValueChange={setModeFilter}>
+                            <SelectTrigger className="mt-1 h-9" data-testid="share-filter-mode">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="public">Public</SelectItem>
+                                <SelectItem value="password">Password</SelectItem>
+                                <SelectItem value="expiring">Expiring</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="w-[180px]">
+                        <Label className="dc-overline">Creator</Label>
+                        <Select value={creatorFilter} onValueChange={setCreatorFilter}>
+                            <SelectTrigger className="mt-1 h-9" data-testid="share-filter-creator">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="owner">Owner</SelectItem>
+                                {editorCreators.map((e) => (
+                                    <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+
                 {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
 
                 {!loading && links.length === 0 && (
@@ -240,29 +343,50 @@ export default function ShareLinks() {
                     </div>
                 )}
 
-                {!loading && links.length > 0 && (
+                {!loading && links.length > 0 && filtered.length === 0 && (
+                    <div className="border border-dashed border-border p-12 text-center text-sm text-muted-foreground" data-testid="share-no-match">
+                        No links match the current filters.
+                    </div>
+                )}
+
+                {!loading && filtered.length > 0 && (
                     <div className="border border-border">
-                        <div className="hidden md:grid grid-cols-[1fr_120px_90px_100px_100px_160px] gap-4 px-4 py-3 bg-secondary/50 border-b border-border text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                        <div className="hidden md:grid grid-cols-[1fr_140px_110px_70px_80px_90px_140px] gap-4 px-4 py-3 bg-secondary/50 border-b border-border text-xs font-mono uppercase tracking-wider text-muted-foreground">
                             <div>Link</div>
+                            <div>Creator</div>
                             <div>Mode</div>
                             <div>Docs</div>
                             <div>Opens</div>
                             <div>Status</div>
                             <div>Actions</div>
                         </div>
-                        {links.map((l) => {
+                        {filtered.map((l) => {
                             const url = `${window.location.origin}/share/${l.token}`;
                             const expired = l.expires_at && new Date(l.expires_at) < new Date();
                             const dead = l.revoked || expired || (l.single_use && l.opens > 0);
                             return (
                                 <div
                                     key={l.token}
-                                    className="md:grid md:grid-cols-[1fr_120px_90px_100px_100px_160px] gap-4 px-4 py-3 border-b border-border last:border-b-0 items-center"
+                                    className="md:grid md:grid-cols-[1fr_140px_110px_70px_80px_90px_140px] gap-4 px-4 py-3 border-b border-border last:border-b-0 items-center"
                                     data-testid={`share-link-row-${l.token}`}
                                 >
                                     <div className="min-w-0">
                                         <div className="font-medium truncate">{l.title || "Untitled link"}</div>
                                         <div className="text-[11px] font-mono text-muted-foreground truncate">{url}</div>
+                                        {l.document_filenames?.length > 0 && (
+                                            <div className="text-[11px] text-muted-foreground truncate mt-0.5" title={l.document_filenames.join(", ")}>
+                                                {l.document_filenames.slice(0, 2).join(", ")}
+                                                {l.document_filenames.length > 2 && ` +${l.document_filenames.length - 2}`}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <div className="text-sm truncate" data-testid={`share-link-creator-${l.token}`}>
+                                            {l.creator_name || l.creator_email || "—"}
+                                        </div>
+                                        {l.creator_role && (
+                                            <div className="text-[10px] font-mono uppercase text-muted-foreground">{l.creator_role}</div>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-1.5 text-xs font-mono uppercase">
                                         <ModeIcon mode={l.mode} /> {l.mode}

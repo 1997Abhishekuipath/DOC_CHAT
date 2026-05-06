@@ -50,8 +50,28 @@ def _confidence_from_hits(hits: List[dict]) -> str:
     return "LOW"
 
 
+def _dedupe_hits(hits: List[dict]) -> List[dict]:
+    """Drop duplicate citations from the same (document, page) pair.
+    Chroma may return multiple chunks of the same page; keep only the
+    closest-distance hit per page so citations stay precise and unique.
+    """
+    seen: set = set()
+    out: List[dict] = []
+    # hits arrive sorted by ascending distance from chroma; preserve order
+    for h in hits:
+        key = (h.get("document_id"), h.get("page"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(h)
+    return out
+
+
 async def retrieve(query: str, document_ids: List[str], top_k: int = 5) -> List[dict]:
-    return await search_chunks(query, document_ids, top_k=top_k)
+    # Pull a wider candidate set from the vector store so we can dedupe
+    # (document, page) pairs without losing the requested top_k.
+    raw = await search_chunks(query, document_ids, top_k=max(top_k * 2, 8))
+    return _dedupe_hits(raw)[:top_k]
 
 
 def build_messages(query: str, hits: List[dict], history: List[dict] | None = None) -> List[dict]:

@@ -52,17 +52,28 @@ async def _resolve_scope(
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    # Editors get: own uploads OR docs assigned by an Owner.
+    # Owners always get: everything.
+    if user["role"] == "owner":
+        access_clause: dict = {}
+    else:
+        access_clause = {
+            "$or": [
+                {"owner_id": user["id"]},
+                {"assigned_to": user["id"]},
+            ]
+        }
+
     requested = body.document_ids or []
     if not requested:
-        # default to all user-accessible documents
-        query = {} if user["role"] == "owner" else {"owner_id": user["id"]}
-        docs = await documents.find(query, {"_id": 0, "id": 1}).to_list(500)
+        # Default to all user-accessible documents
+        docs = await documents.find(access_clause, {"_id": 0, "id": 1}).to_list(500)
         return [d["id"] for d in docs], user["id"], None
 
     # Verify user has access to each requested document
-    query = {"id": {"$in": requested}}
-    if user["role"] != "owner":
-        query["owner_id"] = user["id"]
+    query: dict = {"id": {"$in": requested}}
+    if access_clause:
+        query.update(access_clause)
     allowed = await documents.find(query, {"_id": 0, "id": 1}).to_list(500)
     return [d["id"] for d in allowed], user["id"], None
 
