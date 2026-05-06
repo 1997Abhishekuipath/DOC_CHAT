@@ -7,12 +7,13 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from core.audit import log_event
 from core.config import UPLOAD_DIR
-from core.db import documents, share_links
-from core.deps import ROLE_EDITOR, get_current_user, require_role
+from core.db import documents, share_links, users as users_coll
+from core.deps import ROLE_EDITOR, ROLE_OWNER, get_current_user, require_role
 from services.embeddings import delete_document_chunks
 from services.extraction import (
     ALL_KNOWN_EXTENSIONS,
@@ -45,6 +46,7 @@ class DocumentOut(BaseModel):
     chunk_count: int = 0
     page_count: int = 0
     tags: List[str] = []
+    assigned_to: List[str] = []
     created_at: str
     indexed_at: Optional[str] = None
     error: Optional[str] = None
@@ -101,17 +103,19 @@ async def upload_document(
         )
     content_hash = hashlib.sha256(raw_content).hexdigest()
 
-    # ── Duplicate check: same hash, same owner (or any owner for 'owner' role) ──
-    dup_query = {"content_hash": content_hash}
-    if user["role"] != "owner":
-        dup_query["owner_id"] = user["id"]
-    existing = await documents.find_one(dup_query, {"_id": 0, "id": 1, "filename": 1, "status": 1, "created_at": 1})
+    # ── Duplicate check: global (same hash, any owner) ──
+    # Per spec: prevent the same document from being uploaded twice regardless
+    # of who uploads it. This avoids duplicate embeddings/index entries.
+    existing = await documents.find_one(
+        {"content_hash": content_hash},
+        {"_id": 0, "id": 1, "filename": 1, "status": 1, "created_at": 1, "owner_id": 1},
+    )
     if existing:
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "DUPLICATE",
-                "message": f"This file was already uploaded as \"{existing['filename']}\" ({existing['status']}) on {existing['created_at'][:10]}.",
+                "message": "Document already exists",
                 "existing_id": existing["id"],
                 "existing_filename": existing["filename"],
                 "existing_status": existing["status"],
@@ -140,6 +144,7 @@ async def upload_document(
         "chunk_count": 0,
         "page_count": 0,
         "tags": parsed_tags,
+        "assigned_to": [],
         "content_hash": content_hash,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "indexed_at": None,
@@ -175,9 +180,13 @@ async def list_documents(
     user: dict = Depends(get_current_user),
 ):
     query: dict = {}
-    # Owners see all, others see own
+    # Owners see all documents. Editors see ONLY their own uploads + docs
+    # explicitly assigned to them by an Owner.
     if user["role"] != "owner":
-        query["owner_id"] = user["id"]
+        query["$or"] = [
+            {"owner_id": user["id"]},
+            {"assigned_to": user["id"]},
+        ]
     if q:
         query["filename"] = {"$regex": q, "$options": "i"}
     if tag:
@@ -187,12 +196,22 @@ async def list_documents(
     return await cursor.to_list(500)
 
 
+def _user_can_access_doc(user: dict, doc: dict) -> bool:
+    if user["role"] == "owner":
+        return True
+    if doc.get("owner_id") == user["id"]:
+        return True
+    if user["id"] in (doc.get("assigned_to") or []):
+        return True
+    return False
+
+
 @router.get("/{doc_id}", response_model=DocumentOut)
 async def get_document(doc_id: str, user: dict = Depends(get_current_user)):
     doc = await documents.find_one({"id": doc_id}, {"_id": 0, "disk_path": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if user["role"] != "owner" and doc["owner_id"] != user["id"]:
+    if not _user_can_access_doc(user, doc):
         raise HTTPException(status_code=403, detail="Forbidden")
     return doc
 
@@ -201,11 +220,11 @@ async def get_document(doc_id: str, user: dict = Depends(get_current_user)):
 async def processing_status(doc_id: str, user: dict = Depends(get_current_user)):
     doc = await documents.find_one(
         {"id": doc_id},
-        {"_id": 0, "status": 1, "progress": 1, "chunk_count": 1, "error": 1, "owner_id": 1},
+        {"_id": 0, "status": 1, "progress": 1, "chunk_count": 1, "error": 1, "owner_id": 1, "assigned_to": 1},
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if user["role"] != "owner" and doc["owner_id"] != user["id"]:
+    if not _user_can_access_doc(user, doc):
         raise HTTPException(status_code=403, detail="Forbidden")
     return {
         "status": doc.get("status"),
@@ -215,8 +234,72 @@ async def processing_status(doc_id: str, user: dict = Depends(get_current_user))
     }
 
 
+@router.get("/{doc_id}/file")
+async def serve_document_file(doc_id: str, user: dict = Depends(get_current_user)):
+    """Serve the original uploaded file for in-app preview/download.
+    Access mirrors list visibility: owner OR uploader OR assigned editor.
+    """
+    doc = await documents.find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not _user_can_access_doc(user, doc):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    disk_path = Path(doc["disk_path"])
+    if not disk_path.exists():
+        raise HTTPException(status_code=404, detail="File no longer on disk")
+    return FileResponse(
+        path=disk_path,
+        media_type=doc.get("mime_type") or "application/octet-stream",
+        filename=doc.get("filename") or disk_path.name,
+    )
+
+
 class PermissionsBody(BaseModel):
     tags: Optional[List[str]] = None
+
+
+class AssignmentBody(BaseModel):
+    editor_ids: List[str]
+
+
+@router.patch("/{doc_id}/assignments")
+async def update_assignments(
+    doc_id: str,
+    body: AssignmentBody,
+    request: Request,
+    actor: dict = Depends(require_role(ROLE_OWNER)),
+):
+    """Owner-only: assign or unassign editors to a document.
+    Pass the FULL list of editor user ids that should have access; this
+    replaces any prior assignment.
+    """
+    doc = await documents.find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Validate editor_ids reference existing editor accounts
+    valid_ids: List[str] = []
+    if body.editor_ids:
+        cursor = users_coll.find(
+            {"id": {"$in": body.editor_ids}, "role": {"$in": [ROLE_EDITOR, ROLE_OWNER]}},
+            {"_id": 0, "id": 1},
+        )
+        valid_ids = [u["id"] async for u in cursor]
+
+    await documents.update_one(
+        {"id": doc_id},
+        {"$set": {"assigned_to": valid_ids}},
+    )
+    await log_event(
+        "document.assignments_updated",
+        actor_id=actor["id"],
+        actor_role=actor["role"],
+        resource_type="document",
+        resource_id=doc_id,
+        ip=request.client.host if request.client else None,
+        metadata={"assigned_to": valid_ids},
+    )
+    return {"ok": True, "assigned_to": valid_ids}
 
 
 @router.patch("/{doc_id}/permissions")

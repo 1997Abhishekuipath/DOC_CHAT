@@ -8,8 +8,11 @@ from .security import decode_token, decode_guest_token
 
 ROLE_OWNER = "owner"
 ROLE_EDITOR = "editor"
-ROLE_VIEWER = "viewer"
 ROLE_GUEST = "guest"
+
+# Viewer role removed (Feb 2026). Kept ROLE_VIEWER constant for backward
+# compatibility with any legacy seed data; rank-1 slot is unused at runtime.
+ROLE_VIEWER = "viewer"
 
 ROLE_RANK = {ROLE_VIEWER: 1, ROLE_EDITOR: 2, ROLE_OWNER: 3}
 

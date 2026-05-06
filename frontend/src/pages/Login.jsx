@@ -85,13 +85,6 @@ export default function Login() {
                     <Button type="submit" className="w-full h-11" disabled={busy} data-testid="login-submit-button">
                         {busy ? "Signing in…" : "Sign in"}
                     </Button>
-
-                    <div className="text-sm text-muted-foreground text-center">
-                        No workspace yet?{" "}
-                        <Link to="/register" className="text-brand-primary font-medium underline underline-offset-2" data-testid="login-register-link">
-                            Create one
-                        </Link>
-                    </div>
                 </form>
             </div>
         </div>

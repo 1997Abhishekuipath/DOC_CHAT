@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from core.audit import log_event
 from core.db import users
-from core.deps import ROLE_OWNER, ROLE_VIEWER, get_current_user
+from core.deps import ROLE_OWNER, ROLE_EDITOR, get_current_user
 from core.security import (
     create_access_token,
     create_refresh_token,
@@ -46,9 +46,15 @@ async def register(body: RegisterRequest, request: Request):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # First user becomes OWNER; subsequent users are VIEWER by default.
+    # Bootstrap-only: the public register endpoint creates the FIRST owner.
+    # All subsequent users must be created by an owner via /admin/users.
     count = await users.count_documents({})
-    role = ROLE_OWNER if count == 0 else ROLE_VIEWER
+    if count > 0:
+        raise HTTPException(
+            status_code=403,
+            detail="Public registration is disabled. Ask an Owner to invite you.",
+        )
+    role = ROLE_OWNER
 
     user_id = str(uuid.uuid4())
     doc = {

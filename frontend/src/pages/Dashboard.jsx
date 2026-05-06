@@ -1,10 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import api from "@/lib/api";
+import api, { API_BASE } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import UploadDialog from "@/components/UploadDialog";
 import { toast } from "sonner";
 import {
@@ -22,6 +31,8 @@ import {
     Trash,
     ChatCircle,
     ArrowClockwise,
+    Eye,
+    UserPlus,
 } from "@phosphor-icons/react";
 
 const IconForFile = ({ filename }) => {
@@ -41,11 +52,18 @@ const StatusBadge = ({ status }) => {
 };
 
 export default function Dashboard() {
+    const { user: currentUser } = useAuth();
+    const isOwner = currentUser?.role === "owner";
+
     const [docs, setDocs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [q, setQ] = useState("");
     const [uploadOpen, setUploadOpen] = useState(false);
     const [selected, setSelected] = useState([]);
+    const [editors, setEditors] = useState([]);
+    const [assignDoc, setAssignDoc] = useState(null);
+    const [assignSelection, setAssignSelection] = useState([]);
+    const [assignBusy, setAssignBusy] = useState(false);
 
     const load = async () => {
         try {
@@ -61,6 +79,14 @@ export default function Dashboard() {
         const id = setTimeout(load, 200);
         return () => clearTimeout(id);
     }, [q]);
+
+    // Owners need the editor list to assign documents
+    useEffect(() => {
+        if (!isOwner) return;
+        api.get("/admin/users").then((r) => {
+            setEditors((r.data || []).filter((u) => u.role === "editor"));
+        }).catch(() => {});
+    }, [isOwner]);
 
     // Poll processing docs
     useEffect(() => {
@@ -110,6 +136,56 @@ export default function Dashboard() {
         if (!ready.length) { toast.error("Select at least one ready document"); return; }
         const params = new URLSearchParams({ docs: ready.map((r) => r.id).join(",") });
         window.location.href = `/app/chat?${params}`;
+    };
+
+    const viewDocument = async (d) => {
+        try {
+            const token = localStorage.getItem("dc_access_token");
+            const res = await fetch(`${API_BASE}/v2/documents/${d.id}/file`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const w = window.open(url, "_blank");
+            if (!w) {
+                // popup blocked — fall back to triggering download
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = d.filename;
+                a.click();
+            }
+            // Revoke after a delay so the new tab can finish loading
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        } catch (e) {
+            toast.error("Could not open document");
+        }
+    };
+
+    const openAssign = (d) => {
+        setAssignDoc(d);
+        setAssignSelection(d.assigned_to || []);
+    };
+
+    const saveAssignments = async () => {
+        if (!assignDoc) return;
+        setAssignBusy(true);
+        try {
+            await api.patch(`/v2/documents/${assignDoc.id}/assignments`, {
+                editor_ids: assignSelection,
+            });
+            toast.success("Assignments updated");
+            setDocs((c) => c.map((x) => x.id === assignDoc.id ? { ...x, assigned_to: assignSelection } : x));
+            setAssignDoc(null);
+        } catch (e) {
+            toast.error(e?.response?.data?.detail || "Update failed");
+        } finally {
+            setAssignBusy(false);
+        }
+    };
+
+    const toggleAssignEditor = (id) => {
+        setAssignSelection((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
     };
 
     return (
@@ -170,19 +246,19 @@ export default function Dashboard() {
 
                 {!loading && docs.length > 0 && (
                     <div className="border border-border">
-                        <div className="hidden md:grid grid-cols-[36px_1fr_200px_110px_100px_80px_40px] gap-4 px-4 py-3 bg-secondary/50 border-b border-border text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                        <div className="hidden md:grid grid-cols-[36px_1fr_200px_110px_100px_80px_140px] gap-4 px-4 py-3 bg-secondary/50 border-b border-border text-xs font-mono uppercase tracking-wider text-muted-foreground">
                             <div></div>
                             <div>File</div>
                             <div>Status</div>
                             <div>Pages / Chunks</div>
                             <div>Tags</div>
                             <div>Size</div>
-                            <div></div>
+                            <div className="text-right">Actions</div>
                         </div>
                         {docs.map((d) => (
                             <div
                                 key={d.id}
-                                className="md:grid md:grid-cols-[36px_1fr_200px_110px_100px_80px_40px] gap-4 px-4 py-3 border-b border-border last:border-b-0 hover:bg-secondary/30 transition-colors items-center"
+                                className="md:grid md:grid-cols-[36px_1fr_200px_110px_100px_80px_140px] gap-4 px-4 py-3 border-b border-border last:border-b-0 hover:bg-secondary/30 transition-colors items-center"
                                 data-testid={`document-row-${d.id}`}
                             >
                                 <input
@@ -233,9 +309,33 @@ export default function Dashboard() {
                                     ))}
                                 </div>
                                 <div className="text-xs font-mono text-muted-foreground">{(d.size / 1024).toFixed(0)}KB</div>
-                                <Button variant="ghost" size="icon" onClick={() => del(d)} data-testid={`document-delete-${d.id}`}>
-                                    <Trash size={16} />
-                                </Button>
+                                <div className="flex items-center justify-end gap-1">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 px-2 gap-1 text-xs"
+                                        onClick={() => viewDocument(d)}
+                                        data-testid={`document-view-${d.id}`}
+                                        title="View document"
+                                    >
+                                        <Eye size={14} /> View
+                                    </Button>
+                                    {isOwner && (
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8"
+                                            onClick={() => openAssign(d)}
+                                            data-testid={`document-assign-${d.id}`}
+                                            title="Assign to editors"
+                                        >
+                                            <UserPlus size={15} />
+                                        </Button>
+                                    )}
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => del(d)} data-testid={`document-delete-${d.id}`} title="Delete">
+                                        <Trash size={15} />
+                                    </Button>
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -243,6 +343,46 @@ export default function Dashboard() {
             </div>
 
             <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} onUploaded={load} />
+
+            <Dialog open={!!assignDoc} onOpenChange={(o) => !o && setAssignDoc(null)}>
+                <DialogContent data-testid="assign-dialog">
+                    <DialogHeader>
+                        <DialogTitle className="font-heading text-2xl">Assign editors</DialogTitle>
+                        <DialogDescription>
+                            Choose which editors should see <span className="font-mono">{assignDoc?.filename}</span>. Editors keep access to their own uploads regardless.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="border border-border max-h-72 overflow-auto">
+                        {editors.length === 0 && (
+                            <div className="p-4 text-sm text-muted-foreground">No editors yet. Create one from Admin → Users.</div>
+                        )}
+                        {editors.map((ed) => (
+                            <label
+                                key={ed.id}
+                                className="flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-b-0 cursor-pointer hover:bg-secondary/30"
+                                data-testid={`assign-editor-${ed.id}`}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={assignSelection.includes(ed.id)}
+                                    onChange={() => toggleAssignEditor(ed.id)}
+                                    className="w-4 h-4 accent-brand-primary"
+                                />
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium">{ed.name}</div>
+                                    <div className="text-xs font-mono text-muted-foreground truncate">{ed.email}</div>
+                                </div>
+                            </label>
+                        ))}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setAssignDoc(null)}>Cancel</Button>
+                        <Button onClick={saveAssignments} disabled={assignBusy} data-testid="assign-save-button">
+                            {assignBusy ? "Saving…" : "Save"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

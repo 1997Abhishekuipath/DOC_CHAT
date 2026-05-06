@@ -3,9 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
 
-import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
-import Register from "@/pages/Register";
 import AppLayout from "@/pages/AppLayout";
 import Dashboard from "@/pages/Dashboard";
 import Chat from "@/pages/Chat";
@@ -33,9 +31,8 @@ function App() {
         <AuthProvider>
             <BrowserRouter>
                 <Routes>
-                    <Route path="/" element={<Landing />} />
+                    <Route path="/" element={<Navigate to="/login" replace />} />
                     <Route path="/login" element={<Login />} />
-                    <Route path="/register" element={<Register />} />
                     <Route path="/share/:token" element={<GuestShare />} />
                     <Route path="/app" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
                         <Route index element={<Dashboard />} />
@@ -49,7 +46,7 @@ function App() {
                         <Route path="admin/users" element={<PrivateRoute requireRole="owner"><AdminUsers /></PrivateRoute>} />
                         <Route path="admin/flags" element={<PrivateRoute requireRole="owner"><AdminFlags /></PrivateRoute>} />
                     </Route>
-                    <Route path="*" element={<Navigate to="/" replace />} />
+                    <Route path="*" element={<Navigate to="/login" replace />} />
                 </Routes>
             </BrowserRouter>
             <Toaster position="top-right" />

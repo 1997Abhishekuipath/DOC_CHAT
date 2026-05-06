@@ -86,7 +86,7 @@ export default function AppLayout() {
                         <Button
                             size="icon"
                             variant="ghost"
-                            onClick={() => { logout(); nav("/"); }}
+                            onClick={() => { logout(); nav("/login"); }}
                             data-testid="logout-button"
                             title="Log out"
                         >
