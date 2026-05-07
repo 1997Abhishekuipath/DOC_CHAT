@@ -78,22 +78,28 @@ async def _resolve_scope(
     return [d["id"] for d in allowed], user["id"], None
 
 
-async def _get_or_create_session(user_id: Optional[str], session_id: Optional[str], first_query: str) -> str:
+async def _get_or_create_session(
+    user_id: Optional[str],
+    session_id: Optional[str],
+    first_query: str,
+    extra_fields: Optional[dict] = None,
+) -> str:
     if session_id:
         existing = await sessions.find_one({"id": session_id}, {"_id": 0})
         if existing:
             return session_id
     new_id = session_id or str(uuid.uuid4())
     title = first_query[:60] + ("…" if len(first_query) > 60 else "")
-    await sessions.insert_one(
-        {
-            "id": new_id,
-            "user_id": user_id,
-            "title": title,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    )
+    doc = {
+        "id": new_id,
+        "user_id": user_id,
+        "title": title,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if extra_fields:
+        doc.update(extra_fields)
+    await sessions.insert_one(doc)
     return new_id
 
 
@@ -126,7 +132,21 @@ async def chat(
 
     # Sessions: guest sessions are local to share token
     session_owner = actor_id if not is_guest else f"guest:{guest_payload['share_token']}"
-    session_id = await _get_or_create_session(session_owner, body.session_id, body.query)
+    session_extra: dict = {
+        # Persist exact retrieval scope so reopening the chat history restores
+        # the same document selection instead of defaulting to "all".
+        "scope_doc_ids": list(document_ids) if document_ids else None,
+    }
+    if is_guest:
+        session_extra.update(
+            {
+                "is_guest": True,
+                "share_token": guest_payload["share_token"],
+            }
+        )
+    session_id = await _get_or_create_session(
+        session_owner, body.session_id, body.query, extra_fields=session_extra
+    )
 
     # Save user message
     await _save_message(session_id, "user", body.query, actor_id=actor_id or "guest")

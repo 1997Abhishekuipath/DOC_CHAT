@@ -8,8 +8,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from core.audit import log_analytics, log_event
-from core.db import documents, share_links
-from core.deps import ROLE_EDITOR, require_role
+from core.db import documents, messages, share_links, sessions as sessions_coll
+from core.deps import ROLE_EDITOR, ROLE_OWNER, require_role
 from core.security import (
     create_guest_token,
     decode_guest_token,
@@ -307,3 +307,127 @@ async def serve_shared_document_file(
         media_type=doc.get("mime_type") or "application/octet-stream",
         filename=doc.get("filename") or disk_path.name,
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Share-link CHAT HISTORY (owner: all; editor: own links only)
+# ---------------------------------------------------------------------------
+@router.get("/history/sessions")
+async def list_share_history(
+    user: dict = Depends(require_role(ROLE_EDITOR)),
+):
+    """Return guest chat sessions across share links visible to the caller.
+    - Owner sees every guest session.
+    - Editors see only sessions tied to share links they created.
+    Each session item includes link metadata, document filenames,
+    message count, and timestamps for client-side filtering.
+    """
+    # Build the set of share-link tokens the caller can see
+    link_query: dict = {}
+    if user["role"] != ROLE_OWNER:
+        link_query["creator_id"] = user["id"]
+    visible_links = await share_links.find(
+        link_query,
+        {"_id": 0, "password_hash": 0},
+    ).to_list(2000)
+    if not visible_links:
+        return []
+
+    by_token = {link["token"]: link for link in visible_links}
+
+    # Pull guest sessions for those tokens
+    sess_cursor = sessions_coll.find(
+        {"is_guest": True, "share_token": {"$in": list(by_token.keys())}},
+        {"_id": 0},
+    ).sort("updated_at", -1)
+    sessions_list = await sess_cursor.to_list(1000)
+    if not sessions_list:
+        return []
+
+    # Counts + last activity per session (single aggregation)
+    sess_ids = [s["id"] for s in sessions_list]
+    pipeline = [
+        {"$match": {"session_id": {"$in": sess_ids}}},
+        {
+            "$group": {
+                "_id": "$session_id",
+                "msg_count": {"$sum": 1},
+                "last_activity": {"$max": "$created_at"},
+            }
+        },
+    ]
+    counts: dict = {}
+    async for row in messages.aggregate(pipeline):
+        counts[row["_id"]] = {
+            "msg_count": row["msg_count"],
+            "last_activity": row["last_activity"],
+        }
+
+    # Filenames for documents involved (union across all visible links)
+    all_doc_ids = sorted({d for link in visible_links for d in (link.get("document_ids") or [])})
+    filenames_by_id: dict = {}
+    if all_doc_ids:
+        async for d in documents.find(
+            {"id": {"$in": all_doc_ids}}, {"_id": 0, "id": 1, "filename": 1}
+        ):
+            filenames_by_id[d["id"]] = d["filename"]
+
+    out = []
+    for s in sessions_list:
+        link = by_token.get(s.get("share_token"))
+        if not link:
+            continue
+        c = counts.get(s["id"], {})
+        doc_ids = link.get("document_ids") or []
+        out.append(
+            {
+                "session_id": s["id"],
+                "title": s.get("title"),
+                "created_at": s.get("created_at"),
+                "updated_at": s.get("updated_at"),
+                "last_activity": c.get("last_activity") or s.get("updated_at"),
+                "message_count": c.get("msg_count", 0),
+                "share_token": link["token"],
+                "link_title": link.get("title"),
+                "link_mode": link.get("mode"),
+                "link_revoked": link.get("revoked", False),
+                "link_expires_at": link.get("expires_at"),
+                "creator_id": link.get("creator_id") or link.get("owner_id"),
+                "creator_name": link.get("creator_name"),
+                "creator_email": link.get("creator_email"),
+                "creator_role": link.get("creator_role"),
+                "document_ids": doc_ids,
+                "document_filenames": [
+                    filenames_by_id[i] for i in doc_ids if i in filenames_by_id
+                ],
+            }
+        )
+    return out
+
+
+@router.get("/history/sessions/{session_id}")
+async def get_share_history_session(
+    session_id: str,
+    user: dict = Depends(require_role(ROLE_EDITOR)),
+):
+    """Return all messages for a single guest session, scoped by caller's
+    share-link visibility (owner: any; editor: only own links)."""
+    sess = await sessions_coll.find_one({"id": session_id, "is_guest": True}, {"_id": 0})
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    link = await share_links.find_one(
+        {"token": sess.get("share_token")},
+        {"_id": 0, "password_hash": 0},
+    )
+    if not link:
+        raise HTTPException(status_code=404, detail="Linked share link not found")
+    if user["role"] != ROLE_OWNER and link.get("creator_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    msgs = (
+        await messages.find({"session_id": session_id}, {"_id": 0})
+        .sort("created_at", 1)
+        .to_list(2000)
+    )
+    return {"session": sess, "link": _public_link(link), "messages": msgs}

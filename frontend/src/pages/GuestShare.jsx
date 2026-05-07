@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import ConfidenceBadge from "@/components/ConfidenceBadge";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import { toast } from "sonner";
@@ -17,6 +24,7 @@ import {
     FileText,
     WarningCircle,
     Lightning,
+    ArrowSquareOut,
 } from "@phosphor-icons/react";
 
 export default function GuestShare() {
@@ -33,6 +41,8 @@ export default function GuestShare() {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState("");
     const [streaming, setStreaming] = useState(false);
+    const [followups, setFollowups] = useState([]);
+    const [activeCite, setActiveCite] = useState(null);
     const bottomRef = useRef(null);
 
     useEffect(() => {
@@ -106,6 +116,7 @@ export default function GuestShare() {
         const text = (textOverride ?? input).trim();
         if (!text || streaming || !guestToken) return;
         setInput("");
+        setFollowups([]);
 
         const userMsg = { id: `u-${Date.now()}`, role: "user", content: text };
         setMessages((m) => [...m, userMsg]);
@@ -153,6 +164,8 @@ export default function GuestShare() {
                         } else if (eventType === "done") {
                             setMessages((m) => m.map((mm) => mm.id === assistantDraft.id
                                 ? { ...mm, streaming: false } : mm));
+                            setFollowups(payload.followups || []);
+                        }
                         }
                     } catch {}
                 }
@@ -275,7 +288,7 @@ export default function GuestShare() {
                                             <div className="dc-overline">DocChat</div>
                                             {m.confidence && <ConfidenceBadge level={m.confidence} />}
                                         </div>
-                                        <MarkdownMessage content={m.content} citations={m.citations || []} />
+                                        <MarkdownMessage content={m.content} citations={m.citations || []} onCite={setActiveCite} />
                                         {m.streaming && <span className="dc-cursor" />}
                                         {m.citations?.length > 0 && !m.streaming && (
                                             <div className="mt-4 space-y-1 text-xs">
@@ -284,10 +297,10 @@ export default function GuestShare() {
                                                     <button
                                                         type="button"
                                                         key={c.chunk_id}
-                                                        onClick={() => openSource(c.document_id, c.filename)}
+                                                        onClick={() => setActiveCite(c)}
                                                         className="w-full flex items-center gap-2 py-1.5 px-2 border border-border rounded-sm hover:bg-secondary/50 transition-colors text-left"
                                                         data-testid={`share-source-${c.chunk_id}`}
-                                                        title="Open source document"
+                                                        title="Preview source snippet"
                                                     >
                                                         <span className="font-mono text-[11px] bg-secondary border border-border px-1.5 py-0.5 rounded-sm">[{c.index}]</span>
                                                         <FileText size={13} className="text-muted-foreground" />
@@ -301,6 +314,25 @@ export default function GuestShare() {
                                 )}
                             </div>
                         ))}
+
+                        {followups.length > 0 && !streaming && (
+                            <div className="ml-5" data-testid="share-followup-suggestions">
+                                <div className="dc-overline mb-2">Follow-ups</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {followups.map((f, i) => (
+                                        <button
+                                            key={i}
+                                            type="button"
+                                            onClick={() => send(f)}
+                                            className="text-xs px-3 py-1.5 border border-border bg-card hover:bg-secondary/60 transition-colors rounded-sm"
+                                            data-testid={`share-followup-${i}`}
+                                        >
+                                            {f}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         <div ref={bottomRef} />
                     </div>
                 </div>
@@ -323,6 +355,28 @@ export default function GuestShare() {
                     </Button>
                 </form>
             </div>
+
+            <Dialog open={!!activeCite} onOpenChange={(o) => !o && setActiveCite(null)}>
+                <DialogContent data-testid="share-citation-panel">
+                    <DialogHeader>
+                        <DialogTitle className="font-heading">{activeCite?.filename}</DialogTitle>
+                        <DialogDescription>
+                            Page {activeCite?.page} · Source [{activeCite?.index}]
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="border border-border p-4 bg-secondary/50 font-mono text-[13px] leading-relaxed whitespace-pre-wrap max-h-[50vh] overflow-auto">
+                        {activeCite?.text}
+                    </div>
+                    <Button
+                        variant="outline"
+                        onClick={() => activeCite && openSource(activeCite.document_id, activeCite.filename)}
+                        className="self-end gap-2"
+                        data-testid="share-citation-open-file"
+                    >
+                        <ArrowSquareOut size={14} /> Open original document
+                    </Button>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

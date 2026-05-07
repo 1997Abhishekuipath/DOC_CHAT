@@ -130,9 +130,20 @@ export default function Chat() {
         if (routeSessionId) {
             api.get(`/v2/sessions/${routeSessionId}/messages`).then((r) => {
                 setMessages(r.data.messages || []);
+                // Restore the original document scope so retrieval stays
+                // bound to the same documents the user originally selected.
+                const scope = r.data?.session?.scope_doc_ids;
+                if (Array.isArray(scope)) {
+                    setDocIds(scope.length > 0 ? scope : []);
+                } else if (scope === null || scope === undefined) {
+                    setDocIds(null); // null/undefined => "all accessible"
+                }
             }).catch(() => nav("/app/chat"));
         } else {
             setMessages([]);
+            // New chat: respect URL ?docs=… if present, otherwise null=all
+            const d = searchParams.get("docs");
+            setDocIds(d ? d.split(",") : null);
         }
         setFollowups([]);
     }, [routeSessionId]);
