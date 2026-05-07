@@ -15,6 +15,7 @@ import AdminUsers from "@/pages/AdminUsers";
 import Settings from "@/pages/Settings";
 import EmbedWidget from "@/pages/EmbedWidget";
 import AdminFlags from "@/pages/AdminFlags";
+import ShareHistory from "@/pages/ShareHistory";
 
 import "@/App.css";
 
@@ -39,6 +40,7 @@ function App() {
                         <Route path="chat" element={<Chat />} />
                         <Route path="chat/:sessionId" element={<Chat />} />
                         <Route path="shares" element={<ShareLinks />} />
+                        <Route path="shares/history" element={<ShareHistory />} />
                         <Route path="embed-widget" element={<EmbedWidget />} />
                         <Route path="settings" element={<Settings />} />
                         <Route path="admin/analytics" element={<PrivateRoute requireRole="owner"><AdminAnalytics /></PrivateRoute>} />

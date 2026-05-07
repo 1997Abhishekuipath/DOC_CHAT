@@ -116,7 +116,13 @@ async def _save_message(session_id: str, role: str, content: str, **extra) -> st
     await messages.insert_one(doc)
     await sessions.update_one(
         {"id": session_id},
-        {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+        {
+            "$set": {
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "last_active_at": datetime.now(timezone.utc).isoformat(),
+            },
+            "$inc": {"message_count": 1},
+        },
     )
     return msg_id
 
@@ -138,15 +144,40 @@ async def chat(
         "scope_doc_ids": list(document_ids) if document_ids else None,
     }
     if is_guest:
+        from services.visitor_meta import extract_visitor_meta
+
+        meta = extract_visitor_meta(request)
         session_extra.update(
             {
                 "is_guest": True,
                 "share_token": guest_payload["share_token"],
+                # Network
+                "ip": meta.get("ip"),
+                "ip_masked": meta.get("ip_masked"),
+                "user_agent": meta.get("user_agent"),
+                "accept_language": meta.get("accept_language"),
+                "accept_encoding": meta.get("accept_encoding"),
+                # Device
+                "browser": meta.get("browser"),
+                "browser_version": meta.get("browser_version"),
+                "os": meta.get("os"),
+                "os_version": meta.get("os_version"),
+                "device_type": meta.get("device_type"),
+                # Fingerprint
+                "fingerprint": meta.get("fingerprint"),
+                # Geo (filled async by enrich_session_geo)
+                "geo_country": None,
+                "geo_city": None,
             }
         )
     session_id = await _get_or_create_session(
         session_owner, body.session_id, body.query, extra_fields=session_extra
     )
+    if is_guest and session_extra.get("ip"):
+        # Fire-and-forget geo enrichment so chat latency isn't impacted.
+        from services.visitor_meta import enrich_session_geo
+
+        enrich_session_geo(session_id, session_extra["ip"])
 
     # Save user message
     await _save_message(session_id, "user", body.query, actor_id=actor_id or "guest")

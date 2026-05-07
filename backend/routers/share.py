@@ -183,6 +183,45 @@ async def revoke_share_link(
     return {"ok": True}
 
 
+@router.delete("/{token}/purge")
+async def purge_share_link(
+    token: str,
+    request: Request,
+    user: dict = Depends(require_role(ROLE_EDITOR)),
+):
+    """Hard-delete a share link AND cascade-delete all guest sessions
+    and messages tied to it. Use this when you want to remove the audit
+    trail entirely (e.g. erasure / GDPR). Soft revoke remains available
+    via DELETE /{token}.
+    """
+    link = await share_links.find_one({"token": token}, {"_id": 0})
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found")
+    if user["role"] != "owner" and link.get("creator_id", link.get("owner_id")) != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Cascade
+    sess_cursor = sessions_coll.find(
+        {"is_guest": True, "share_token": token}, {"_id": 0, "id": 1}
+    )
+    sess_ids = [s["id"] async for s in sess_cursor]
+    if sess_ids:
+        await messages.delete_many({"session_id": {"$in": sess_ids}})
+        await sessions_coll.delete_many({"id": {"$in": sess_ids}})
+    await share_links.delete_one({"token": token})
+
+    await log_event(
+        "share_link.purge",
+        actor_id=user["id"],
+        actor_role=user["role"],
+        resource_type="share_link",
+        resource_id=token,
+        ip=request.client.host if request.client else None,
+        metadata={"sessions_deleted": len(sess_ids)},
+    )
+    return {"ok": True, "sessions_deleted": len(sess_ids)}
+
+
 @router.get("/{token}/info")
 async def get_share_info(token: str):
     """Public endpoint: returns minimal info so frontend knows if password needed."""
@@ -386,8 +425,19 @@ async def list_share_history(
                 "title": s.get("title"),
                 "created_at": s.get("created_at"),
                 "updated_at": s.get("updated_at"),
-                "last_activity": c.get("last_activity") or s.get("updated_at"),
-                "message_count": c.get("msg_count", 0),
+                "last_activity": c.get("last_activity") or s.get("last_active_at") or s.get("updated_at"),
+                "message_count": c.get("msg_count", s.get("message_count", 0)),
+                # Visitor / device / network metadata
+                "ip_masked": s.get("ip_masked"),
+                "geo_country": s.get("geo_country"),
+                "geo_city": s.get("geo_city"),
+                "browser": s.get("browser"),
+                "browser_version": s.get("browser_version"),
+                "os": s.get("os"),
+                "os_version": s.get("os_version"),
+                "device_type": s.get("device_type") or "desktop",
+                "fingerprint": s.get("fingerprint"),
+                # Link & creator
                 "share_token": link["token"],
                 "link_title": link.get("title"),
                 "link_mode": link.get("mode"),
@@ -397,9 +447,9 @@ async def list_share_history(
                 "creator_name": link.get("creator_name"),
                 "creator_email": link.get("creator_email"),
                 "creator_role": link.get("creator_role"),
-                "document_ids": doc_ids,
+                "document_ids": s.get("scope_doc_ids") or doc_ids,
                 "document_filenames": [
-                    filenames_by_id[i] for i in doc_ids if i in filenames_by_id
+                    filenames_by_id[i] for i in (s.get("scope_doc_ids") or doc_ids) if i in filenames_by_id
                 ],
             }
         )
@@ -431,3 +481,62 @@ async def get_share_history_session(
         .to_list(2000)
     )
     return {"session": sess, "link": _public_link(link), "messages": msgs}
+
+
+
+@router.get("/history/summary")
+async def share_history_summary(user: dict = Depends(require_role(ROLE_EDITOR))):
+    """Top-of-page rollup: total links, total guest sessions, total messages,
+    and most-active link (by message count). Owner sees all; editors only own.
+    """
+    link_query: dict = {}
+    if user["role"] != ROLE_OWNER:
+        link_query["creator_id"] = user["id"]
+    visible_links = await share_links.find(
+        link_query, {"_id": 0, "password_hash": 0}
+    ).to_list(2000)
+    if not visible_links:
+        return {
+            "total_links": 0,
+            "total_sessions": 0,
+            "total_messages": 0,
+            "most_active_link": None,
+        }
+    by_token = {link["token"]: link for link in visible_links}
+
+    sess_cursor = sessions_coll.find(
+        {"is_guest": True, "share_token": {"$in": list(by_token.keys())}},
+        {"_id": 0, "id": 1, "share_token": 1},
+    )
+    sess_list = await sess_cursor.to_list(5000)
+    sess_ids = [s["id"] for s in sess_list]
+
+    msg_total = 0
+    per_link_msg: dict = {}
+    if sess_ids:
+        sess_to_link = {s["id"]: s.get("share_token") for s in sess_list}
+        async for row in messages.aggregate([
+            {"$match": {"session_id": {"$in": sess_ids}}},
+            {"$group": {"_id": "$session_id", "n": {"$sum": 1}}},
+        ]):
+            msg_total += row["n"]
+            tok = sess_to_link.get(row["_id"])
+            if tok:
+                per_link_msg[tok] = per_link_msg.get(tok, 0) + row["n"]
+
+    most_active = None
+    if per_link_msg:
+        top_token = max(per_link_msg.items(), key=lambda kv: kv[1])[0]
+        link = by_token.get(top_token)
+        if link:
+            most_active = {
+                "share_token": top_token,
+                "title": link.get("title"),
+                "messages": per_link_msg[top_token],
+            }
+    return {
+        "total_links": len(visible_links),
+        "total_sessions": len(sess_list),
+        "total_messages": msg_total,
+        "most_active_link": most_active,
+    }
