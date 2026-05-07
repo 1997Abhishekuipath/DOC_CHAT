@@ -166,7 +166,6 @@ export default function GuestShare() {
                                 ? { ...mm, streaming: false } : mm));
                             setFollowups(payload.followups || []);
                         }
-                        }
                     } catch {}
                 }
             }
